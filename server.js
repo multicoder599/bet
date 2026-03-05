@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const crypto = require('crypto'); // Added for cryptographically secure crash points
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -165,16 +165,32 @@ let flightTickInterval;
 // Tracks active bets: { socketId: { userId, username, amount } }
 let activeRoundBets = {}; 
 
-function generateSecureCrashPoint() {
-    // True Provably Fair Math using crypto
+function generateSecureCrashPoint(hasRealBets) {
     const hash = crypto.randomBytes(32).toString('hex');
-    const n = parseInt(hash.slice(0, 13), 16);
+    const h = parseInt(hash.slice(0, 13), 16);
     const e = Math.pow(2, 52);
     
-    const houseEdge = 0.03; // 3% House Edge
-    let crashPoint = Math.max(1.00, (100 / (100 - houseEdge)) * (e - n) / e);
+    // Create a random float between 0 and 1
+    const r = h / e; 
+
+    let crashPoint;
+
+    if (hasRealBets) {
+        // REAL MODE: Active players are betting. Protect the House.
+        const houseEdge = 0.04; // Strict 4% House Edge
+        crashPoint = (1 - houseEdge) / (1 - r);
+    } else {
+        // DEMO MODE: No real bets. Make the game look highly rewarding.
+        const houseEdge = 0.00; // 0% House Edge
+        crashPoint = (1 - houseEdge) / (1 - r);
+        
+        // 25% chance in Demo Mode to force a fantastic run (between 2x and 15x) to draw users in
+        if (Math.random() < 0.25) {
+            crashPoint = Math.max(crashPoint, (Math.random() * 13) + 2);
+        }
+    }
     
-    // Cap at 1000x to protect bankroll
+    // Floor at 1.00x, Cap at 1000x
     return Math.min(Math.max(1.00, crashPoint), 1000.00); 
 }
 
@@ -189,8 +205,14 @@ function startRound() {
 
     setTimeout(() => {
         gameState = 'FLYING';
-        targetCrashPoint = generateSecureCrashPoint();
-        console.log(`[ROUND #${roundCounter}] Flying... Target: ${targetCrashPoint.toFixed(2)}x`);
+        
+        // Check if any actual real users placed bets this round
+        const hasRealBets = Object.keys(activeRoundBets).length > 0;
+        
+        // Generate crash point based on whether the house is at risk
+        targetCrashPoint = generateSecureCrashPoint(hasRealBets);
+        
+        console.log(`[ROUND #${roundCounter}] Flying... Target: ${targetCrashPoint.toFixed(2)}x | Real Bets Active: ${hasRealBets}`);
         
         io.emit('game_state', { state: 'FLYING', roundId: roundCounter });
 
@@ -326,6 +348,8 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log(`Player disconnected: ${socket.id}`);
+        // If a player disconnects mid-flight, their bet stays active. 
+        // If they don't have auto-cashout set, it will process as a loss when it crashes.
     });
 });
 
