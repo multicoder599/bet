@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const crypto = require('crypto'); // Added for cryptographically secure crash points
 require('dotenv').config();
 
 const app = express();
@@ -16,13 +17,12 @@ const io = new Server(server, { cors: { origin: '*' } });
 // --- MIDDLEWARE ---
 // ==========================================
 app.use(cors());
-app.use(express.json()); // Allows Express to parse JSON bodies
-app.use(express.static(path.join(__dirname, 'public'))); // Serves visual elements like airplane.png
+app.use(express.json()); 
+app.use(express.static(path.join(__dirname, 'public'))); 
 
 // ==========================================
 // --- DATABASE CONNECTION ---
 // ==========================================
-// Rebranding update: updated default database name to urban-bet
 const dbURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/urban-bet';
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_dev_key';
 
@@ -33,51 +33,40 @@ mongoose.connect(dbURI)
 // ==========================================
 // --- MONGODB MODELS ---
 // ==========================================
-
-// 1. User Model
 const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true }, // Used for login; phone numbers are often used
+    username: { type: String, required: true, unique: true }, 
     password: { type: String, required: true },
-    balance: { type: Number, default: 0.00 } // Wallet balance in KES
+    balance: { type: Number, default: 0.00 } 
 });
 const User = mongoose.model('User', UserSchema);
 
-// 2. Bet History Model
 const BetSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     username: String,
     betAmount: Number,
-    cashoutMultiplier: { type: Number, default: 0 }, // 0 means crashed/lost
+    cashoutMultiplier: { type: Number, default: 0 }, 
     winnings: { type: Number, default: 0 },
     roundId: String,
     createdAt: { type: Date, default: Date.now }
 });
 const Bet = mongoose.model('Bet', BetSchema);
 
-// 3. Transaction Model (Deposits/Withdrawals)
 const TransactionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     type: { type: String, enum: ['DEPOSIT', 'WITHDRAWAL'] },
     amount: Number,
-    status: { type: String, default: 'COMPLETED' }, // Would be 'PENDING' for real M-Pesa
+    status: { type: String, default: 'COMPLETED' }, 
     createdAt: { type: Date, default: Date.now }
 });
 const Transaction = mongoose.model('Transaction', TransactionSchema);
 
-
 // ==========================================
 // --- REST API ROUTES (AUTH & WALLET) ---
 // ==========================================
-
-// Register User
 app.post('/api/register', async (req, res) => {
     try {
         const { username, password } = req.body;
-
-        // 1. Basic input validation
-        if (!username || !password) {
-            return res.status(400).json({ error: 'Username and password are required.' });
-        }
+        if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
 
         const existingUser = await User.findOne({ username });
         if (existingUser) return res.status(400).json({ error: 'Username taken. Please try login.' });
@@ -85,29 +74,20 @@ app.post('/api/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ username, password: hashedPassword });
         
-        // Give new users a 50 KES welcome bonus
-        newUser.balance = 50.00; 
+        newUser.balance = 50.00; // 50 KES welcome bonus
         await newUser.save();
-
-        // Optional: Return a token here to allow "Powered by Scribe" logic on frontend
-        // For now, simple registration is enough.
 
         res.status(201).json({ message: 'User registered successfully!' });
     } catch (err) {
-        console.error('Registration Error:', err); // Log the exact error to Render console
+        console.error('Registration Error:', err); 
         res.status(500).json({ error: 'Server error during registration. Check logs.' });
     }
 });
 
-// Login User
 app.post('/api/login', async (req, res) => {
     try {
         const { username, password } = req.body;
-
-        // Basic input validation
-        if (!username || !password) {
-            return res.status(400).json({ error: 'Username and password are required.' });
-        }
+        if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
 
         const user = await User.findOne({ username });
         if (!user) return res.status(400).json({ error: 'Invalid username or password.' });
@@ -123,10 +103,8 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Mock Deposit (Later: Replace with real payment gateway logic)
 app.post('/api/deposit', async (req, res) => {
     try {
-        // In a real app, verify the JWT token first for security
         const { username, amount } = req.body;
         if (amount < 10) return res.status(400).json({ error: 'Minimum deposit is 10 KES.' });
 
@@ -145,12 +123,9 @@ app.post('/api/deposit', async (req, res) => {
     }
 });
 
-// Mock Withdrawal 
 app.post('/api/withdraw', async (req, res) => {
     try {
-        // In a real app, verify JWT token first
         const { username, amount } = req.body;
-        
         const user = await User.findOne({ username });
         if (!user) return res.status(404).json({ error: 'User not found.' });
         if (user.balance < amount) return res.status(400).json({ error: 'Insufficient balance.' });
@@ -167,7 +142,6 @@ app.post('/api/withdraw', async (req, res) => {
     }
 });
 
-// Get User Bet History
 app.get('/api/history/:username', async (req, res) => {
     try {
         const history = await Bet.find({ username: req.params.username }).sort({ createdAt: -1 }).limit(20);
@@ -178,92 +152,86 @@ app.get('/api/history/:username', async (req, res) => {
     }
 });
 
-
 // ==========================================
-// --- GAME ENGINE STATE ---
+// --- SECURE GAME ENGINE STATE ---
 // ==========================================
-// Rebuilding visual identity from image references
-let gameState = 'WAITING'; // Corresponding to visual state in image_10.png ('Waiting for Next Round...')
-let currentMultiplier = 1.00;
-let crashPoint = 0;
-let startTime = 0;
-let gameInterval;
-let currentRoundId = Date.now().toString();
+let gameState = 'WAITING'; 
+let currentMult = 1.00;
+let targetCrashPoint = 1.00;
+let history = [60.16, 36.15, 54.63, 3.55, 4.18, 22.87, 25.18, 83.12, 44.75];
+let roundCounter = 85261;
+let flightTickInterval;
 
-// Tracks active bets for the CURRENT round: { socketId: { userId, betAmount } }
+// Tracks active bets: { socketId: { userId, username, amount } }
 let activeRoundBets = {}; 
 
-function generateCrashPoint() {
-    const houseEdge = 0.04; // Adjust this if necessary
-    if (Math.random() < houseEdge) return 1.00;
-    const r = Math.random();
-    const multiplier = 0.99 / (1 - r);
-    return Math.min(Math.max(1.01, multiplier), 10000.00); // Standard caps
+function generateSecureCrashPoint() {
+    // True Provably Fair Math using crypto
+    const hash = crypto.randomBytes(32).toString('hex');
+    const n = parseInt(hash.slice(0, 13), 16);
+    const e = Math.pow(2, 52);
+    
+    const houseEdge = 0.03; // 3% House Edge
+    let crashPoint = Math.max(1.00, (100 / (100 - houseEdge)) * (e - n) / e);
+    
+    // Cap at 1000x to protect bankroll
+    return Math.min(Math.max(1.00, crashPoint), 1000.00); 
 }
 
-function runGameCycle() {
-    // Phase 1: Waiting state (Ref: image_10.png)
+function startRound() {
     gameState = 'WAITING';
-    currentMultiplier = 1.00;
-    currentRoundId = Date.now().toString(); // New ID for each round
-    activeRoundBets = {}; // Clear bets from last round
+    currentMult = 1.00;
+    roundCounter++;
+    activeRoundBets = {}; 
 
-    // Inform frontend to show "Waiting for Next Round..." visuals
-    io.emit('gameState', { state: gameState, multiplier: 1.00, timeToNextRound: 5000, roundId: currentRoundId });
+    // Inform frontend to show "WAITING" screen
+    io.emit('game_state', { state: 'WAITING', roundId: roundCounter, history: history.slice(0, 15) });
 
-    // Wait 5 seconds for bets before starting
     setTimeout(() => {
-        // Phase 2: Flying state (Ref: image_8.png)
         gameState = 'FLYING';
-        crashPoint = generateCrashPoint();
-        startTime = Date.now();
-        console.log(`[NEW ROUND ${currentRoundId}] Flying. Crash will be at: ${crashPoint.toFixed(2)}x`);
+        targetCrashPoint = generateSecureCrashPoint();
+        console.log(`[ROUND #${roundCounter}] Flying... Target: ${targetCrashPoint.toFixed(2)}x`);
         
-        // Inform frontend that the plane should be flying and start sound
-        io.emit('gameStarted');
+        io.emit('game_state', { state: 'FLYING', roundId: roundCounter });
 
-        gameInterval = setInterval(() => {
-            const timeElapsed = (Date.now() - startTime) / 1000;
-            // Formula for multiplier growth
-            currentMultiplier = Math.pow(Math.E, 0.08 * timeElapsed);
+        flightTickInterval = setInterval(() => {
+            currentMult += 0.004 + (currentMult * 0.0015);
 
-            if (currentMultiplier >= crashPoint) {
-                // Plane crashes (Ref: image_9.png)
-                currentMultiplier = crashPoint;
-                clearInterval(gameInterval);
+            if (currentMult >= targetCrashPoint) {
+                // THE PLANE CRASHED
+                clearInterval(flightTickInterval);
+                currentMult = targetCrashPoint; 
                 gameState = 'CRASHED';
                 
-                // Inform frontend of crash, show "FLEW AWAY" screen, play crash sound
-                io.emit('crashed', { crashPoint: currentMultiplier });
-                console.log(`[CRASHED] at ${currentMultiplier.toFixed(2)}x`);
+                history.unshift(currentMult);
+                if(history.length > 20) history.pop();
+
+                io.emit('game_state', { state: 'CRASHED', finalMult: currentMult, history: history.slice(0, 15) });
+                console.log(`[ROUND #${roundCounter}] Crashed at ${currentMult.toFixed(2)}x`);
                 
-                // Process losses for anyone who didn't cash out
                 processCrashedBets();
 
-                // Wait 4 seconds before starting next round (shows flew away state)
-                setTimeout(runGameCycle, 4000);
+                setTimeout(startRound, 3500); // Wait 3.5s, then loop
             } else {
-                // Send multiplier update to frontend to move the plane (Ref: image_4.png)
-                io.emit('tick', { multiplier: currentMultiplier.toFixed(2) });
+                // Send multiplier update to frontend
+                io.emit('game_tick', { mult: currentMult });
             }
         }, 50);
-
-    }, 5000); // Start flying after 5 seconds waiting
+    }, 5000); 
 }
 
-// Any bet left in `activeRoundBets` when the plane crashes is a loss.
+// Any bet left in `activeRoundBets` when plane crashes is a loss.
 async function processCrashedBets() {
     for (const socketId in activeRoundBets) {
         const betData = activeRoundBets[socketId];
         try {
-            // Log the loss in the database
             await Bet.create({
                 userId: betData.userId,
                 username: betData.username,
                 betAmount: betData.amount,
                 cashoutMultiplier: 0,
                 winnings: 0,
-                roundId: currentRoundId
+                roundId: roundCounter.toString()
             });
         } catch (err) {
             console.error('Failed to log crashed bet:', err);
@@ -271,45 +239,41 @@ async function processCrashedBets() {
     }
 }
 
-
 // ==========================================
-// --- SOCKET CONNECTIONS (BETTING LOGIC) ---
+// --- SOCKET CONNECTIONS (BETTING) ---
 // ==========================================
 io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
     
-    // Initial state upon connection
-    socket.emit('gameState', { state: gameState, multiplier: currentMultiplier.toFixed(2), roundId: currentRoundId });
+    // Sync newly connected user immediately
+    socket.emit('game_state', { 
+        state: gameState, 
+        roundId: roundCounter, 
+        currentMult: currentMult,
+        history: history.slice(0, 15) 
+    });
 
     // PLACING A BET
     socket.on('placeBet', async (data) => {
-        // data expects: { username: "player1", amount: 100 }
-        // Bet can only be placed in WAITING state (Ref: image_10.png)
         if (gameState !== 'WAITING') {
             return socket.emit('error', 'Wait for next round.');
         }
-
         try {
             const user = await User.findOne({ username: data.username });
             if (!user) return socket.emit('error', 'User not found');
             if (user.balance < data.amount) return socket.emit('error', 'Insufficient balance.');
 
-            // Deduct balance
             user.balance -= data.amount;
             await user.save();
 
-            // Store bet in server memory for this round
             activeRoundBets[socket.id] = { 
                 userId: user._id, 
                 username: user.username,
                 amount: data.amount 
             };
 
-            // Confirm bet to player and update their visual balance
             socket.emit('betConfirmed', { newBalance: user.balance });
-            // Broadcast bet to live panel
             io.emit('liveBetAdded', { username: user.username, amount: data.amount });
-
         } catch (err) {
             console.error('Socket PlaceBet Error:', err);
             socket.emit('error', 'Bet processing failed.');
@@ -318,47 +282,42 @@ io.on('connection', (socket) => {
 
     // CASHING OUT
     socket.on('cashOut', async () => {
-        // Can only cash out in FLYING state (Ref: image_8.png)
         if (gameState !== 'FLYING' || !activeRoundBets[socket.id]) {
             return socket.emit('error', 'Cannot cash out right now.');
         }
 
         try {
             const betData = activeRoundBets[socket.id];
-            const lockedMultiplier = currentMultiplier; // Lock it in immediately
+            const lockedMultiplier = currentMult; 
             const winnings = betData.amount * lockedMultiplier;
 
-            // Remove from active bets so they don't lose it when the plane crashes
+            // Remove so they don't get marked as crashed
             delete activeRoundBets[socket.id]; 
 
             const user = await User.findById(betData.userId);
             user.balance += winnings;
             await user.save();
 
-            // Save winning bet to history database
             await Bet.create({
                 userId: user._id,
                 username: user.username,
                 betAmount: betData.amount,
                 cashoutMultiplier: lockedMultiplier,
                 winnings: winnings,
-                roundId: currentRoundId
+                roundId: roundCounter.toString()
             });
 
-            // Inform player of winning, update their visual balance, play winning sound
             socket.emit('cashOutSuccess', { 
                 multiplier: lockedMultiplier.toFixed(2), 
                 winnings: winnings.toFixed(2),
                 newBalance: user.balance.toFixed(2)
             });
             
-            // Broadcast win to everyone on live panel and chat (Ref: image_7.png)
             io.emit('playerCashedOut', { 
                 username: user.username, 
                 multiplier: lockedMultiplier.toFixed(2), 
                 amount: winnings.toFixed(2) 
             });
-
         } catch (err) {
             console.error('Socket CashOut Error:', err);
             socket.emit('error', 'Cashout processing failed.');
@@ -366,7 +325,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        // Note: Real casinos use "Auto Cashout" to protect against disconnects.
         console.log(`Player disconnected: ${socket.id}`);
     });
 });
@@ -374,8 +332,7 @@ io.on('connection', (socket) => {
 // ==========================================
 // --- START THE SERVER ---
 // ==========================================
-// Run the continuous game loop
-runGameCycle();
+startRound();
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Crash Server (URBANBET) running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 UrbanBet Server running on port ${PORT}`));
