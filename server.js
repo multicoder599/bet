@@ -81,6 +81,7 @@ const TransactionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     type: { type: String, enum: ['DEPOSIT', 'WITHDRAWAL'] },
     amount: Number,
+    receipt: { type: String, unique: true, sparse: true }, // Added to prevent double-crediting
     status: { type: String, default: 'COMPLETED' }, 
     createdAt: { type: Date, default: Date.now }
 });
@@ -132,7 +133,9 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// 1. MEGAPAY DEPOSIT (Sends STK Push)
+// ==========================================
+// --- MEGAPAY STK PUSH (DEPOSIT) ---
+// ==========================================
 app.post('/api/deposit', async (req, res) => {
     try {
         const { username, phone, amount } = req.body;
@@ -141,68 +144,104 @@ app.post('/api/deposit', async (req, res) => {
         const user = await User.findOne({ $or: [{ phone: username }, { username: username }] });
         if (!user) return res.status(404).json({ error: 'User not found.' });
 
-        // Format phone to 254 format for STK (e.g., 0712... becomes 254712...)
-        let formattedPhone = phone ? phone.trim() : user.phone;
-        if (formattedPhone.startsWith('0')) formattedPhone = '254' + formattedPhone.slice(1);
-        if (formattedPhone.startsWith('+')) formattedPhone = formattedPhone.slice(1);
+        // Use the provided phone from the form, fallback to registered phone
+        let targetPhone = phone || user.phone;
+        let formattedPhone = targetPhone.replace(/\D/g, ''); 
+        
+        if (formattedPhone.startsWith('0')) formattedPhone = '254' + formattedPhone.substring(1);
+        if (formattedPhone.startsWith('7') || formattedPhone.startsWith('1')) formattedPhone = '254' + formattedPhone;
 
-        // --- MEGAPAY STK PUSH API CALL ---
-        /*
-        const megapayResponse = await fetch('https://api.megapay.co.ke/v1/express/stk', {
+        // Uses environment variable, falls back to your Render domain
+        const APP_URL = process.env.APP_URL || 'https://bet-6jn6.onrender.com';
+
+        const payload = {
+            api_key: "MGPY26G5iWPw", 
+            email: "kanyingiwaitara@gmail.com", 
+            amount: amount, 
+            msisdn: formattedPhone,
+            callback_url: `${APP_URL}/api/megapay/webhook`,
+            description: "UrbanBet Deposit", 
+            reference: "DEP" + Date.now()
+        };
+
+        // Call Megapay using native fetch
+        const response = await fetch('https://megapay.co.ke/backend/v1/initiatestk', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.MEGAPAY_API_KEY}`
-            },
-            body: JSON.stringify({
-                phone: formattedPhone,
-                amount: amount,
-                reference: user._id.toString(), // Connect transaction to this user
-                callback_url: 'https://bet-6jn6.onrender.com/api/megapay/callback'
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        const megaData = await megapayResponse.json();
-        if (!megaData.success) throw new Error("Megapay gateway failed.");
-        */
 
-        // Create a PENDING transaction (DO NOT add money to balance yet)
+        const data = await response.json();
+
+        // Log the attempt as pending
         await Transaction.create({ userId: user._id, type: 'DEPOSIT', amount, status: 'PENDING' });
 
-        res.json({ message: 'STK Push sent! Please enter your M-Pesa PIN on your phone.' });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to send M-Pesa prompt.' });
+        res.status(200).json({ message: "STK Push Sent! Check your phone." });
+    } catch (error) { 
+        console.error("STK Error:", error);
+        res.status(500).json({ error: "Payment Gateway Error" }); 
     }
 });
 
-// 2. MEGAPAY WEBHOOK CALLBACK (Updates balance when PIN is entered)
-app.post('/api/megapay/callback', async (req, res) => {
+// ==========================================
+// --- MEGAPAY WEBHOOK (RECEIVES PAYMENT) ---
+// ==========================================
+app.post('/api/megapay/webhook', async (req, res) => {
+    // 1. Immediately acknowledge receipt to Megapay so they stop retrying
+    res.status(200).send("OK");
+    
+    const data = req.body;
     try {
-        // Adjust these field names based on Megapay's exact API documentation
-        const { reference, amount, status } = req.body; 
+        // 2. Check if the payment was actually successful (Code 0)
+        const responseCode = data.ResponseCode !== undefined ? data.ResponseCode : data.ResultCode;
+        if (responseCode != 0) return; // User cancelled or failed
 
-        if (status === 'SUCCESS') {
-            const user = await User.findById(reference); // We sent user._id as reference
-            if (user) {
-                user.balance += parseFloat(amount);
-                await user.save();
-                
-                // Update transaction status to COMPLETED
-                await Transaction.findOneAndUpdate(
-                    { userId: user._id, type: 'DEPOSIT', amount: amount, status: 'PENDING' },
-                    { status: 'COMPLETED' }
-                );
+        // 3. Extract the M-Pesa data
+        const amount = parseFloat(data.TransactionAmount || data.amount || data.Amount);
+        const receipt = data.TransactionReceipt || data.MpesaReceiptNumber;
+        let phone = (data.Msisdn || data.phone || data.PhoneNumber).toString();
+        
+        // Format phone back to local format (e.g., 07...) to match your Database
+        if (phone.startsWith('254')) phone = '0' + phone.substring(3);
 
-                // Send Telegram Alert for successful deposit
-                sendTelegramMessage(`💵 *DEPOSIT RECEIVED*\n👤 User: ${user.phone}\n💰 Amount: KES ${amount}`);
-            }
+        // 4. Find the matching user in UrbanBet
+        const user = await User.findOne({ phone: phone });
+        if (!user) {
+            console.log(`Webhook Error: Unregistered phone paid ${amount} - ${phone}`);
+            return;
         }
-        res.status(200).send('Callback received');
-    } catch (err) {
-        res.status(500).send('Webhook error');
+
+        // 5. Prevent Duplicate Processing (Check if receipt exists)
+        const existingTx = await Transaction.findOne({ receipt: receipt });
+        if (existingTx) {
+            console.log(`Duplicate Webhook ignored for receipt: ${receipt}`);
+            return;
+        }
+
+        // 6. Update User Balance
+        user.balance += amount;
+        await user.save();
+
+        // 7. Save the official completed transaction
+        await Transaction.create({
+            userId: user._id,
+            type: "DEPOSIT",
+            amount: amount,
+            status: "COMPLETED",
+            receipt: receipt
+        });
+
+        // 8. Send Telegram Alert
+        sendTelegramMessage(`💵 *DEPOSIT CONFIRMED*\n👤 User: ${user.phone}\n💰 Amount: KES ${amount}\n🧾 Receipt: ${receipt}`);
+        
+    } catch (err) { 
+        console.error("Webhook Processing Error:", err); 
     }
 });
 
-// 3. WITHDRAWAL (Deducts balance & notifies Telegram)
+// ==========================================
+// --- WITHDRAWAL ---
+// ==========================================
 app.post('/api/withdraw', async (req, res) => {
     try {
         const { username, amount } = req.body;
@@ -226,12 +265,16 @@ app.post('/api/withdraw', async (req, res) => {
     }
 });
 
-app.get('/api/history/:username', async (req, res) => {
+// FETCH WALLET TRANSACTIONS (DEPOSITS & WITHDRAWALS)
+app.get('/api/transactions/:username', async (req, res) => {
     try {
-        const history = await Bet.find({ username: req.params.username }).sort({ createdAt: -1 }).limit(20);
-        res.json(history);
+        const user = await User.findOne({ $or: [{ phone: req.params.username }, { username: req.params.username }] });
+        if (!user) return res.status(404).json([]);
+        
+        const transactions = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(30);
+        res.json(transactions);
     } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch history.' });
+        res.status(500).json({ error: 'Failed to fetch wallet transactions.' });
     }
 });
 
@@ -268,7 +311,45 @@ app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
         res.json({ message: 'User deleted successfully.' });
     } catch (err) { res.status(500).json({ error: 'Failed to delete user.' }); }
 });
+// ADMIN: FETCH PENDING WITHDRAWALS
+app.get('/api/admin/transactions/pending', verifyAdmin, async (req, res) => {
+    try {
+        // Fetch all pending withdrawals and pull the user's phone number with it
+        const pendingTxs = await Transaction.find({ type: 'WITHDRAWAL', status: 'PENDING_ADMIN_APPROVAL' })
+            .populate('userId', 'phone')
+            .sort({ createdAt: 1 }); // Oldest first
+        res.json(pendingTxs);
+    } catch (err) { res.status(500).json({ error: 'Failed to fetch pending withdrawals.' }); }
+});
 
+// ADMIN: MARK WITHDRAWAL AS PAID
+app.put('/api/admin/transactions/:id/approve', verifyAdmin, async (req, res) => {
+    try {
+        const tx = await Transaction.findByIdAndUpdate(req.params.id, { status: 'COMPLETED' }, { new: true });
+        if (!tx) return res.status(404).json({ error: 'Transaction not found.' });
+        res.json({ message: 'Withdrawal marked as COMPLETED.' });
+    } catch (err) { res.status(500).json({ error: 'Failed to approve withdrawal.' }); }
+});
+
+// ADMIN: REJECT WITHDRAWAL & REFUND USER
+app.put('/api/admin/transactions/:id/reject', verifyAdmin, async (req, res) => {
+    try {
+        const tx = await Transaction.findById(req.params.id);
+        if (!tx) return res.status(404).json({ error: 'Transaction not found.' });
+        if (tx.status !== 'PENDING_ADMIN_APPROVAL') return res.status(400).json({ error: 'Already processed.' });
+        
+        tx.status = 'REJECTED';
+        await tx.save();
+
+        // Refund the user's balance
+        const user = await User.findById(tx.userId);
+        if(user) {
+            user.balance += tx.amount;
+            await user.save();
+        }
+        res.json({ message: 'Withdrawal rejected. Money refunded to user.' });
+    } catch (err) { res.status(500).json({ error: 'Failed to reject withdrawal.' }); }
+});
 // ADMIN: OVERRIDE NEXT ROUND MULTIPLIER
 app.post('/api/admin/override', verifyAdmin, (req, res) => {
     try {
