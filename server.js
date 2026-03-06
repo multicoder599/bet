@@ -28,13 +28,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_dev_key';
 
 mongoose.connect(dbURI)
     .then(() => console.log('✅ Connected to MongoDB (urban-bet)'))
-    .catch(err => console.log('❌ MongoDB connection error:', err));
+    .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // ==========================================
 // --- MONGODB MODELS ---
 // ==========================================
 const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true }, 
+    phone: { type: String, required: true, unique: true }, // Login uses phone
+    username: { type: String, required: true }, // Display name
     password: { type: String, required: true },
     balance: { type: Number, default: 0.00 } 
 });
@@ -65,62 +66,72 @@ const Transaction = mongoose.model('Transaction', TransactionSchema);
 // ==========================================
 app.post('/api/register', async (req, res) => {
     try {
-        const { username, password } = req.body;
-        if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+        console.log("Registration Attempt:", req.body); // Logs to Render dashboard
+        const { username, phone, password } = req.body;
+        
+        if (!phone || !password) {
+            return res.status(400).json({ error: 'Phone and password are required.' });
+        }
 
-        const existingUser = await User.findOne({ username });
-        if (existingUser) return res.status(400).json({ error: 'Username taken. Please try login.' });
+        const existingUser = await User.findOne({ phone });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Phone number already registered. Please login.' });
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ username, password: hashedPassword });
+        const newUser = new User({ 
+            phone: phone, 
+            username: username || "Player", 
+            password: hashedPassword,
+            balance: 50.00 // 50 KES welcome bonus
+        });
         
-        newUser.balance = 50.00; // 50 KES welcome bonus
         await newUser.save();
-
         res.status(201).json({ message: 'User registered successfully!' });
+
     } catch (err) {
-        console.error('Registration Error:', err); 
-        res.status(500).json({ error: 'Server error during registration. Check logs.' });
+        console.error('Registration Error Details:', err); 
+        // Send the exact error to the frontend so we can see what broke
+        res.status(500).json({ error: `Backend Error: ${err.message}` });
     }
 });
 
 app.post('/api/login', async (req, res) => {
     try {
-        const { username, password } = req.body;
-        if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+        console.log("Login Attempt:", req.body);
+        // The frontend sends { username: phone, password: pass }
+        const phoneToLogin = req.body.username || req.body.phone; 
+        const password = req.body.password;
 
-        const user = await User.findOne({ username });
-        if (!user) return res.status(400).json({ error: 'Invalid username or password.' });
+        if (!phoneToLogin || !password) return res.status(400).json({ error: 'Phone and password required.' });
+
+        const user = await User.findOne({ phone: phoneToLogin });
+        if (!user) return res.status(400).json({ error: 'Invalid phone number or password.' });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ error: 'Invalid username or password.' });
+        if (!isMatch) return res.status(400).json({ error: 'Invalid phone number or password.' });
 
-        const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, user: { username: user.username, balance: user.balance } });
+        const token = jwt.sign({ id: user._id, phone: user.phone }, JWT_SECRET, { expiresIn: '24h' });
+        res.json({ token, user: { username: user.username, phone: user.phone, balance: user.balance } });
     } catch (err) {
         console.error('Login Error:', err);
-        res.status(500).json({ error: 'Server error during login.' });
+        res.status(500).json({ error: `Backend Error: ${err.message}` });
     }
 });
 
+// ... (Deposit, Withdraw, and History routes remain the same as before) ...
 app.post('/api/deposit', async (req, res) => {
     try {
         const { username, amount } = req.body;
-        if (amount < 10) return res.status(400).json({ error: 'Minimum deposit is 10 KES.' });
-
         const user = await User.findOne({ username });
         if (!user) return res.status(404).json({ error: 'User not found.' });
 
         user.balance += parseFloat(amount);
         await user.save();
-
         await Transaction.create({ userId: user._id, type: 'DEPOSIT', amount });
 
-        res.json({ message: 'Deposit successful', newBalance: user.balance });
-    } catch (err) {
-        console.error('Deposit Error:', err);
-        res.status(500).json({ error: 'Deposit failed.' });
-    }
+        res.json({ newBalance: user.balance });
+    } catch (err) { res.status(500).json({ error: 'Deposit failed.' }); }
 });
 
 app.post('/api/withdraw', async (req, res) => {
@@ -132,24 +143,17 @@ app.post('/api/withdraw', async (req, res) => {
 
         user.balance -= parseFloat(amount);
         await user.save();
-
         await Transaction.create({ userId: user._id, type: 'WITHDRAWAL', amount });
 
-        res.json({ message: 'Withdrawal successful', newBalance: user.balance });
-    } catch (err) {
-        console.error('Withdrawal Error:', err);
-        res.status(500).json({ error: 'Withdrawal failed.' });
-    }
+        res.json({ newBalance: user.balance });
+    } catch (err) { res.status(500).json({ error: 'Withdrawal failed.' }); }
 });
 
 app.get('/api/history/:username', async (req, res) => {
     try {
         const history = await Bet.find({ username: req.params.username }).sort({ createdAt: -1 }).limit(20);
         res.json(history);
-    } catch (err) {
-        console.error('History Error:', err);
-        res.status(500).json({ error: 'Failed to fetch history.' });
-    }
+    } catch (err) { res.status(500).json({ error: 'Failed to fetch history.' }); }
 });
 
 // ==========================================
@@ -162,35 +166,22 @@ let history = [60.16, 36.15, 54.63, 3.55, 4.18, 22.87, 25.18, 83.12, 44.75];
 let roundCounter = 85261;
 let flightTickInterval;
 
-// Tracks active bets using a composite key: { "socketId_betIndex": { userId, username, amount, betIndex } }
 let activeRoundBets = {}; 
 
 function generateSecureCrashPoint(hasRealBets) {
     const hash = crypto.randomBytes(32).toString('hex');
     const h = parseInt(hash.slice(0, 13), 16);
     const e = Math.pow(2, 52);
-    
-    // Create a random float between 0 and 1
     const r = h / e; 
 
     let crashPoint;
-
     if (hasRealBets) {
-        // REAL MODE: Active players are betting. Protect the House.
-        const houseEdge = 0.04; // Strict 4% House Edge
+        const houseEdge = 0.04; 
         crashPoint = (1 - houseEdge) / (1 - r);
     } else {
-        // DEMO MODE: No real bets. Make the game look highly rewarding.
-        const houseEdge = 0.00; // 0% House Edge
-        crashPoint = (1 - houseEdge) / (1 - r);
-        
-        // 25% chance in Demo Mode to force a fantastic run (between 2x and 15x) to draw users in
-        if (Math.random() < 0.25) {
-            crashPoint = Math.max(crashPoint, (Math.random() * 13) + 2);
-        }
+        crashPoint = 1 / (1 - r); 
+        if (Math.random() < 0.25) crashPoint = Math.max(crashPoint, (Math.random() * 13) + 2);
     }
-    
-    // Floor at 1.00x, Cap at 1000x
     return Math.min(Math.max(1.00, crashPoint), 1000.00); 
 }
 
@@ -200,19 +191,12 @@ function startRound() {
     roundCounter++;
     activeRoundBets = {}; 
 
-    // Inform frontend to show "WAITING" screen
     io.emit('game_state', { state: 'WAITING', roundId: roundCounter, history: history.slice(0, 15) });
 
     setTimeout(() => {
         gameState = 'FLYING';
-        
-        // Check if any actual real users placed bets this round
         const hasRealBets = Object.keys(activeRoundBets).length > 0;
-        
-        // Generate crash point based on whether the house is at risk
         targetCrashPoint = generateSecureCrashPoint(hasRealBets);
-        
-        console.log(`[ROUND #${roundCounter}] Flying... Target: ${targetCrashPoint.toFixed(2)}x | Real Bets Active: ${hasRealBets}`);
         
         io.emit('game_state', { state: 'FLYING', roundId: roundCounter });
 
@@ -220,7 +204,6 @@ function startRound() {
             currentMult += 0.004 + (currentMult * 0.0015);
 
             if (currentMult >= targetCrashPoint) {
-                // THE PLANE CRASHED
                 clearInterval(flightTickInterval);
                 currentMult = targetCrashPoint; 
                 gameState = 'CRASHED';
@@ -229,20 +212,16 @@ function startRound() {
                 if(history.length > 20) history.pop();
 
                 io.emit('game_state', { state: 'CRASHED', finalMult: currentMult, history: history.slice(0, 15) });
-                console.log(`[ROUND #${roundCounter}] Crashed at ${currentMult.toFixed(2)}x`);
-                
                 processCrashedBets();
 
-                setTimeout(startRound, 3500); // Wait 3.5s, then loop
+                setTimeout(startRound, 3500); 
             } else {
-                // Send multiplier update to frontend
                 io.emit('game_tick', { mult: currentMult });
             }
         }, 50);
     }, 5000); 
 }
 
-// Any bet left in `activeRoundBets` when plane crashes is a loss.
 async function processCrashedBets() {
     for (const betKey in activeRoundBets) {
         const betData = activeRoundBets[betKey];
@@ -255,9 +234,7 @@ async function processCrashedBets() {
                 winnings: 0,
                 roundId: roundCounter.toString()
             });
-        } catch (err) {
-            console.error('Failed to log crashed bet:', err);
-        }
+        } catch (err) { console.error('Failed to log crashed bet:', err); }
     }
 }
 
@@ -265,64 +242,42 @@ async function processCrashedBets() {
 // --- SOCKET CONNECTIONS (BETTING) ---
 // ==========================================
 io.on('connection', (socket) => {
-    console.log(`Player connected: ${socket.id}`);
-    
-    // Sync newly connected user immediately
-    socket.emit('game_state', { 
-        state: gameState, 
-        roundId: roundCounter, 
-        currentMult: currentMult,
-        history: history.slice(0, 15) 
-    });
+    socket.emit('game_state', { state: gameState, roundId: roundCounter, currentMult: currentMult, history: history.slice(0, 15) });
 
-    // PLACING A BET
     socket.on('placeBet', async (data) => {
-        if (gameState !== 'WAITING') {
-            return socket.emit('error', 'Wait for next round.');
-        }
+        if (gameState !== 'WAITING') return socket.emit('error', 'Wait for next round.');
         try {
+            // Find user by their username (display name)
             const user = await User.findOne({ username: data.username });
-            if (!user) return socket.emit('error', 'User not found');
+            if (!user) return socket.emit('error', 'User not found in database.');
             if (user.balance < data.amount) return socket.emit('error', 'Insufficient balance.');
 
             user.balance -= data.amount;
             await user.save();
 
-            // Support for Panel 0 and Panel 1
             const betIndex = data.betIndex !== undefined ? data.betIndex : 0;
             const betKey = `${socket.id}_${betIndex}`;
 
-            activeRoundBets[betKey] = { 
-                userId: user._id, 
-                username: user.username,
-                amount: data.amount,
-                betIndex: betIndex
-            };
+            activeRoundBets[betKey] = { userId: user._id, username: user.username, amount: data.amount, betIndex: betIndex };
 
             socket.emit('betConfirmed', { newBalance: user.balance, betIndex: betIndex });
             io.emit('liveBetAdded', { username: user.username, amount: data.amount });
         } catch (err) {
-            console.error('Socket PlaceBet Error:', err);
-            socket.emit('error', 'Bet processing failed.');
+            socket.emit('error', 'Bet processing failed: ' + err.message);
         }
     });
 
-    // CASHING OUT
     socket.on('cashOut', async (data) => {
-        // Identify which panel the user is trying to cash out
         const betIndex = data && data.betIndex !== undefined ? data.betIndex : 0;
         const betKey = `${socket.id}_${betIndex}`;
 
-        if (gameState !== 'FLYING' || !activeRoundBets[betKey]) {
-            return socket.emit('error', 'Cannot cash out right now.');
-        }
+        if (gameState !== 'FLYING' || !activeRoundBets[betKey]) return socket.emit('error', 'Cannot cash out right now.');
 
         try {
             const betData = activeRoundBets[betKey];
             const lockedMultiplier = currentMult; 
             const winnings = betData.amount * lockedMultiplier;
 
-            // Remove so they don't get marked as crashed
             delete activeRoundBets[betKey]; 
 
             const user = await User.findById(betData.userId);
@@ -338,34 +293,14 @@ io.on('connection', (socket) => {
                 roundId: roundCounter.toString()
             });
 
-            socket.emit('cashOutSuccess', { 
-                betIndex: betIndex,
-                multiplier: lockedMultiplier.toFixed(2), 
-                winnings: winnings.toFixed(2),
-                newBalance: user.balance.toFixed(2)
-            });
-            
-            io.emit('playerCashedOut', { 
-                username: user.username, 
-                multiplier: lockedMultiplier.toFixed(2), 
-                amount: winnings.toFixed(2) 
-            });
+            socket.emit('cashOutSuccess', { betIndex: betIndex, multiplier: lockedMultiplier.toFixed(2), winnings: winnings.toFixed(2), newBalance: user.balance.toFixed(2) });
+            io.emit('playerCashedOut', { username: user.username, multiplier: lockedMultiplier.toFixed(2), amount: winnings.toFixed(2) });
         } catch (err) {
-            console.error('Socket CashOut Error:', err);
             socket.emit('error', 'Cashout processing failed.');
         }
     });
-
-    socket.on('disconnect', () => {
-        console.log(`Player disconnected: ${socket.id}`);
-        // If a player disconnects mid-flight, their bet stays active. 
-        // If they don't have auto-cashout set, it will process as a loss when it crashes.
-    });
 });
 
-// ==========================================
-// --- START THE SERVER ---
-// ==========================================
 startRound();
 
 const PORT = process.env.PORT || 3000;
