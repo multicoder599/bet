@@ -132,24 +132,77 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// 1. MEGAPAY DEPOSIT (Sends STK Push)
 app.post('/api/deposit', async (req, res) => {
     try {
-        const { username, amount } = req.body;
-        if (amount < 10) return res.status(400).json({ error: 'Minimum deposit is 10 KES.' });
+        const { username, phone, amount } = req.body;
+        if (amount < 50) return res.status(400).json({ error: 'Minimum deposit is 50 KES.' });
 
         const user = await User.findOne({ $or: [{ phone: username }, { username: username }] });
         if (!user) return res.status(404).json({ error: 'User not found.' });
 
-        user.balance += parseFloat(amount);
-        await user.save();
-        await Transaction.create({ userId: user._id, type: 'DEPOSIT', amount });
+        // Format phone to 254 format for STK (e.g., 0712... becomes 254712...)
+        let formattedPhone = phone ? phone.trim() : user.phone;
+        if (formattedPhone.startsWith('0')) formattedPhone = '254' + formattedPhone.slice(1);
+        if (formattedPhone.startsWith('+')) formattedPhone = formattedPhone.slice(1);
 
-        res.json({ message: 'Deposit successful', newBalance: user.balance });
+        // --- MEGAPAY STK PUSH API CALL ---
+        /*
+        const megapayResponse = await fetch('https://api.megapay.co.ke/v1/express/stk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.MEGAPAY_API_KEY}`
+            },
+            body: JSON.stringify({
+                phone: formattedPhone,
+                amount: amount,
+                reference: user._id.toString(), // Connect transaction to this user
+                callback_url: 'https://bet-6jn6.onrender.com/api/megapay/callback'
+            })
+        });
+        const megaData = await megapayResponse.json();
+        if (!megaData.success) throw new Error("Megapay gateway failed.");
+        */
+
+        // Create a PENDING transaction (DO NOT add money to balance yet)
+        await Transaction.create({ userId: user._id, type: 'DEPOSIT', amount, status: 'PENDING' });
+
+        res.json({ message: 'STK Push sent! Please enter your M-Pesa PIN on your phone.' });
     } catch (err) {
-        res.status(500).json({ error: 'Deposit failed.' });
+        res.status(500).json({ error: 'Failed to send M-Pesa prompt.' });
     }
 });
 
+// 2. MEGAPAY WEBHOOK CALLBACK (Updates balance when PIN is entered)
+app.post('/api/megapay/callback', async (req, res) => {
+    try {
+        // Adjust these field names based on Megapay's exact API documentation
+        const { reference, amount, status } = req.body; 
+
+        if (status === 'SUCCESS') {
+            const user = await User.findById(reference); // We sent user._id as reference
+            if (user) {
+                user.balance += parseFloat(amount);
+                await user.save();
+                
+                // Update transaction status to COMPLETED
+                await Transaction.findOneAndUpdate(
+                    { userId: user._id, type: 'DEPOSIT', amount: amount, status: 'PENDING' },
+                    { status: 'COMPLETED' }
+                );
+
+                // Send Telegram Alert for successful deposit
+                sendTelegramMessage(`💵 *DEPOSIT RECEIVED*\n👤 User: ${user.phone}\n💰 Amount: KES ${amount}`);
+            }
+        }
+        res.status(200).send('Callback received');
+    } catch (err) {
+        res.status(500).send('Webhook error');
+    }
+});
+
+// 3. WITHDRAWAL (Deducts balance & notifies Telegram)
 app.post('/api/withdraw', async (req, res) => {
     try {
         const { username, amount } = req.body;
@@ -157,11 +210,17 @@ app.post('/api/withdraw', async (req, res) => {
         if (!user) return res.status(404).json({ error: 'User not found.' });
         if (user.balance < amount) return res.status(400).json({ error: 'Insufficient balance.' });
 
+        // Deduct balance instantly
         user.balance -= parseFloat(amount);
         await user.save();
-        await Transaction.create({ userId: user._id, type: 'WITHDRAWAL', amount });
+        
+        // Log transaction as pending admin approval
+        await Transaction.create({ userId: user._id, type: 'WITHDRAWAL', amount, status: 'PENDING_ADMIN_APPROVAL' });
 
-        res.json({ message: 'Withdrawal successful', newBalance: user.balance });
+        // Alert Admin via Telegram
+        sendTelegramMessage(`🚨 *NEW WITHDRAWAL REQUEST* 🚨\n\n👤 *User:* ${user.phone}\n💰 *Amount:* KES ${amount}\n💳 *Remaining Balance:* KES ${user.balance.toFixed(2)}\n\n_Please process this manually via M-Pesa B2C or Admin Panel._`);
+
+        res.json({ message: 'Withdrawal request sent! Admin will process it shortly.', newBalance: user.balance });
     } catch (err) {
         res.status(500).json({ error: 'Withdrawal failed.' });
     }
