@@ -14,6 +14,31 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 // ==========================================
+// --- TELEGRAM BOT CONFIGURATION ---
+// ==========================================
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+
+async function sendTelegramMessage(text) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+        // Uses native fetch (Requires Node.js 18+)
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                chat_id: TELEGRAM_CHAT_ID, 
+                text: text,
+                parse_mode: 'Markdown'
+            })
+        });
+    } catch (error) {
+        console.error('Telegram notification failed:', error.message);
+    }
+}
+
+// ==========================================
 // --- MIDDLEWARE ---
 // ==========================================
 app.use(cors());
@@ -34,8 +59,8 @@ mongoose.connect(dbURI)
 // --- MONGODB MODELS ---
 // ==========================================
 const UserSchema = new mongoose.Schema({
-    phone: { type: String, required: true, unique: true }, // Login uses phone
-    username: { type: String, required: true }, // Display name
+    phone: { type: String, required: true, unique: true }, 
+    username: { type: String, required: true }, 
     password: { type: String, required: true },
     balance: { type: Number, default: 0.00 } 
 });
@@ -75,9 +100,9 @@ app.post('/api/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ 
             phone: phone, 
-            username: username || phone, // Fallback to phone to ensure uniqueness
+            username: username || phone, 
             password: hashedPassword,
-            balance: 0.00 // Bonus removed. Users now start with 0.00 KES
+            balance: 0.00 
         });
         
         await newUser.save();
@@ -101,8 +126,6 @@ app.post('/api/login', async (req, res) => {
         if (!isMatch) return res.status(400).json({ error: 'Invalid phone number or password.' });
 
         const token = jwt.sign({ id: user._id, phone: user.phone }, JWT_SECRET, { expiresIn: '24h' });
-        
-        // IMPORTANT FIX: Return phone as the 'username' property so the frontend session uses the unique phone number
         res.json({ token, user: { username: user.phone, phone: user.phone, balance: user.balance } });
     } catch (err) {
         res.status(500).json({ error: `Backend Error: ${err.message}` });
@@ -114,7 +137,6 @@ app.post('/api/deposit', async (req, res) => {
         const { username, amount } = req.body;
         if (amount < 10) return res.status(400).json({ error: 'Minimum deposit is 10 KES.' });
 
-        // Support searching by phone or username
         const user = await User.findOne({ $or: [{ phone: username }, { username: username }] });
         if (!user) return res.status(404).json({ error: 'User not found.' });
 
@@ -157,62 +179,76 @@ app.get('/api/history/:username', async (req, res) => {
 // ==========================================
 // --- ADMIN API ROUTES ---
 // ==========================================
-// In production, keep this very secure in your .env file
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'key1905';
 
 const verifyAdmin = (req, res, next) => {
-    const secret = req.headers['x-admin-secret'];
-    if (secret === ADMIN_SECRET) {
-        next();
-    } else {
-        res.status(403).json({ error: 'Unauthorized Admin Access' });
-    }
+    if (req.headers['x-admin-secret'] === ADMIN_SECRET) next();
+    else res.status(403).json({ error: 'Unauthorized Admin Access' });
 };
 
-// Get all users (excluding passwords)
 app.get('/api/admin/users', verifyAdmin, async (req, res) => {
     try {
         const users = await User.find({}, '-password').sort({ createdAt: -1 });
         res.json(users);
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch users.' });
-    }
+    } catch (err) { res.status(500).json({ error: 'Failed to fetch users.' }); }
 });
 
-// Update a user's balance
 app.put('/api/admin/users/:id/balance', verifyAdmin, async (req, res) => {
     try {
         const { balance } = req.body;
         const user = await User.findByIdAndUpdate(req.params.id, { balance: parseFloat(balance) }, { new: true });
         if (!user) return res.status(404).json({ error: 'User not found.' });
         res.json({ message: 'Balance updated successfully.', newBalance: user.balance });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to update balance.' });
-    }
+    } catch (err) { res.status(500).json({ error: 'Failed to update balance.' }); }
 });
 
-// Delete a user
 app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
     try {
         const user = await User.findByIdAndDelete(req.params.id);
         if (!user) return res.status(404).json({ error: 'User not found.' });
         res.json({ message: 'User deleted successfully.' });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to delete user.' });
-    }
+    } catch (err) { res.status(500).json({ error: 'Failed to delete user.' }); }
 });
 
-// OVERRIDE ENGINE ENDPOINT
+// ADMIN: OVERRIDE NEXT ROUND MULTIPLIER
 app.post('/api/admin/override', verifyAdmin, (req, res) => {
     try {
         const { multiplier } = req.body;
         const val = parseFloat(multiplier);
         if (isNaN(val) || val < 1.0) return res.status(400).json({ error: 'Invalid multiplier' });
         
-        manualCrashPoint = val; // Set the global override variable
+        manualCrashPoint = val; 
         res.json({ message: `Success! The next round will crash exactly at ${val.toFixed(2)}x` });
     } catch (err) {
         res.status(500).json({ error: 'Failed to set override' });
+    }
+});
+
+// ADMIN: EMERGENCY INSTANT CRASH
+app.post('/api/admin/emergency-crash', verifyAdmin, (req, res) => {
+    try {
+        if (gameState !== 'FLYING') {
+            return res.status(400).json({ error: 'Game is not currently flying.' });
+        }
+        
+        // Stop the flight instantly
+        clearInterval(flightTickInterval);
+        targetCrashPoint = currentMult; // Set target to exact current multiplier
+        gameState = 'CRASHED';
+        
+        history.unshift(currentMult);
+        if(history.length > 20) history.pop();
+
+        io.emit('game_state', { state: 'CRASHED', finalMult: currentMult, history: history.slice(0, 15) });
+        processCrashedBets();
+        
+        sendTelegramMessage(`🚨 *EMERGENCY CRASH TRIGGERED* at ${currentMult.toFixed(2)}x!`);
+
+        setTimeout(startRound, 3500); 
+        
+        res.json({ message: `Emergency Crash Executed successfully at ${currentMult.toFixed(2)}x` });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to execute emergency crash' });
     }
 });
 
@@ -228,32 +264,25 @@ let flightTickInterval;
 
 // Override variable
 let manualCrashPoint = null; 
-
-// Tracks active bets using a composite key: { "socketId_betIndex": { userId, username, amount, betIndex } }
 let activeRoundBets = {}; 
 
-function generateSecureCrashPoint(hasRealBets) {
+function generateSecureCrashPoint() {
     // 1. CHECK FOR ADMIN OVERRIDE FIRST
     if (manualCrashPoint !== null) {
         const override = manualCrashPoint;
-        manualCrashPoint = null; // Reset it immediately so it only affects ONE round
+        manualCrashPoint = null; // Reset immediately for next round
         return override;
     }
 
-    // 2. NORMAL RANDOM LOGIC
+    // 2. NORMAL RANDOM LOGIC (Permanent 4% House Edge protection applied early)
     const hash = crypto.randomBytes(32).toString('hex');
     const h = parseInt(hash.slice(0, 13), 16);
     const e = Math.pow(2, 52);
     const r = h / e; 
 
-    let crashPoint;
-    if (hasRealBets) {
-        const houseEdge = 0.04; // 4% House Edge protects your bankroll
-        crashPoint = (1 - houseEdge) / (1 - r);
-    } else {
-        crashPoint = 1 / (1 - r); 
-        if (Math.random() < 0.25) crashPoint = Math.max(crashPoint, (Math.random() * 13) + 2);
-    }
+    const houseEdge = 0.04; 
+    const crashPoint = (1 - houseEdge) / (1 - r);
+    
     return Math.min(Math.max(1.00, crashPoint), 1000.00); 
 }
 
@@ -263,13 +292,19 @@ function startRound() {
     roundCounter++;
     activeRoundBets = {}; 
 
+    // Generate crash point EARLY to send to Telegram 5 seconds before flight
+    targetCrashPoint = generateSecureCrashPoint();
+    
+    // Fire Telegram Bot Message
+    sendTelegramMessage(`⚠️ *Round #${roundCounter} Preparing*\n🎯 Scheduled Crash: *${targetCrashPoint.toFixed(2)}x*`);
+
     io.emit('game_state', { state: 'WAITING', roundId: roundCounter, history: history.slice(0, 15) });
 
     setTimeout(() => {
+        // If an emergency crash happened during WAITING, abort starting the flight
+        if(gameState !== 'WAITING') return; 
+
         gameState = 'FLYING';
-        const hasRealBets = Object.keys(activeRoundBets).length > 0;
-        targetCrashPoint = generateSecureCrashPoint(hasRealBets);
-        
         io.emit('game_state', { state: 'FLYING', roundId: roundCounter });
 
         flightTickInterval = setInterval(() => {
@@ -319,7 +354,6 @@ io.on('connection', (socket) => {
     socket.on('placeBet', async (data) => {
         if (gameState !== 'WAITING') return socket.emit('error', 'Wait for next round.');
         try {
-            // Match by phone or username since frontend sends phone as username now
             const user = await User.findOne({ $or: [{ phone: data.username }, { username: data.username }] });
             if (!user) return socket.emit('error', 'User not found in database.');
             if (user.balance < data.amount) return socket.emit('error', 'Insufficient balance.');
