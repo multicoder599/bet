@@ -162,7 +162,7 @@ let history = [60.16, 36.15, 54.63, 3.55, 4.18, 22.87, 25.18, 83.12, 44.75];
 let roundCounter = 85261;
 let flightTickInterval;
 
-// Tracks active bets: { socketId: { userId, username, amount } }
+// Tracks active bets using a composite key: { "socketId_betIndex": { userId, username, amount, betIndex } }
 let activeRoundBets = {}; 
 
 function generateSecureCrashPoint(hasRealBets) {
@@ -244,8 +244,8 @@ function startRound() {
 
 // Any bet left in `activeRoundBets` when plane crashes is a loss.
 async function processCrashedBets() {
-    for (const socketId in activeRoundBets) {
-        const betData = activeRoundBets[socketId];
+    for (const betKey in activeRoundBets) {
+        const betData = activeRoundBets[betKey];
         try {
             await Bet.create({
                 userId: betData.userId,
@@ -288,13 +288,18 @@ io.on('connection', (socket) => {
             user.balance -= data.amount;
             await user.save();
 
-            activeRoundBets[socket.id] = { 
+            // Support for Panel 0 and Panel 1
+            const betIndex = data.betIndex !== undefined ? data.betIndex : 0;
+            const betKey = `${socket.id}_${betIndex}`;
+
+            activeRoundBets[betKey] = { 
                 userId: user._id, 
                 username: user.username,
-                amount: data.amount 
+                amount: data.amount,
+                betIndex: betIndex
             };
 
-            socket.emit('betConfirmed', { newBalance: user.balance });
+            socket.emit('betConfirmed', { newBalance: user.balance, betIndex: betIndex });
             io.emit('liveBetAdded', { username: user.username, amount: data.amount });
         } catch (err) {
             console.error('Socket PlaceBet Error:', err);
@@ -303,18 +308,22 @@ io.on('connection', (socket) => {
     });
 
     // CASHING OUT
-    socket.on('cashOut', async () => {
-        if (gameState !== 'FLYING' || !activeRoundBets[socket.id]) {
+    socket.on('cashOut', async (data) => {
+        // Identify which panel the user is trying to cash out
+        const betIndex = data && data.betIndex !== undefined ? data.betIndex : 0;
+        const betKey = `${socket.id}_${betIndex}`;
+
+        if (gameState !== 'FLYING' || !activeRoundBets[betKey]) {
             return socket.emit('error', 'Cannot cash out right now.');
         }
 
         try {
-            const betData = activeRoundBets[socket.id];
+            const betData = activeRoundBets[betKey];
             const lockedMultiplier = currentMult; 
             const winnings = betData.amount * lockedMultiplier;
 
             // Remove so they don't get marked as crashed
-            delete activeRoundBets[socket.id]; 
+            delete activeRoundBets[betKey]; 
 
             const user = await User.findById(betData.userId);
             user.balance += winnings;
@@ -330,6 +339,7 @@ io.on('connection', (socket) => {
             });
 
             socket.emit('cashOutSuccess', { 
+                betIndex: betIndex,
                 multiplier: lockedMultiplier.toFixed(2), 
                 winnings: winnings.toFixed(2),
                 newBalance: user.balance.toFixed(2)
