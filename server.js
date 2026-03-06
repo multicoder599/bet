@@ -153,7 +153,53 @@ app.get('/api/history/:username', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch history.' });
     }
 });
+// ==========================================
+// --- ADMIN API ROUTES ---
+// ==========================================
+// In production, keep this very secure in your .env file
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'key1905';
 
+const verifyAdmin = (req, res, next) => {
+    const secret = req.headers['x-admin-secret'];
+    if (secret === ADMIN_SECRET) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Unauthorized Admin Access' });
+    }
+};
+
+// Get all users (excluding passwords)
+app.get('/api/admin/users', verifyAdmin, async (req, res) => {
+    try {
+        const users = await User.find({}, '-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch users.' });
+    }
+});
+
+// Update a user's balance
+app.put('/api/admin/users/:id/balance', verifyAdmin, async (req, res) => {
+    try {
+        const { balance } = req.body;
+        const user = await User.findByIdAndUpdate(req.params.id, { balance: parseFloat(balance) }, { new: true });
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        res.json({ message: 'Balance updated successfully.', newBalance: user.balance });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update balance.' });
+    }
+});
+
+// Delete a user
+app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
+    try {
+        const user = await User.findByIdAndDelete(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        res.json({ message: 'User deleted successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete user.' });
+    }
+});
 // ==========================================
 // --- SECURE GAME ENGINE STATE ---
 // ==========================================
