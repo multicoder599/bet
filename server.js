@@ -1,7 +1,8 @@
 /**
  * ═══════════════════════════════════════════════════════════
- *  URBANBET — PRODUCTION SERVER  v2.0
- *  Node.js + Express + Socket.IO + MongoDB
+ * URBANBET — PRODUCTION SERVER  v2.0
+ * Node.js + Express + Socket.IO + MongoDB
+ * (Protected with Atomic Transactions & Regex Login)
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -64,10 +65,10 @@ async function tgSend(text) {
    SECURITY MIDDLEWARE
 ──────────────────────────────────────── */
 app.use(helmet({
-  contentSecurityPolicy: false, // set custom CSP if needed
+  contentSecurityPolicy: false, 
   crossOriginEmbedderPolicy: false,
 }));
-app.use(mongoSanitize());      // prevent NoSQL injection
+app.use(mongoSanitize());      
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*' }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -109,7 +110,6 @@ mongoose.connection.on('reconnected',  () => console.log('[DB] Reconnected'));
    SCHEMAS & MODELS
 ──────────────────────────────────────── */
 
-/* User */
 const UserSchema = new mongoose.Schema({
   phone:        { type: String, required: true, unique: true, trim: true, index: true },
   username:     { type: String, required: true, trim: true },
@@ -119,7 +119,7 @@ const UserSchema = new mongoose.Schema({
   totalDeposit: { type: Number, default: 0 },
   totalBets:    { type: Number, default: 0 },
   totalWins:    { type: Number, default: 0 },
-  referredBy:   { type: String, default: '' },      // referral code of inviter
+  referredBy:   { type: String, default: '' },
   referralCode: { type: String, unique: true, sparse: true },
   status:       { type: String, enum: ['active','suspended','banned'], default: 'active' },
   kycStatus:    { type: String, enum: ['none','pending','verified','rejected'], default: 'none' },
@@ -129,7 +129,6 @@ const UserSchema = new mongoose.Schema({
   createdAt:    { type: Date, default: Date.now },
 });
 
-/* Bet */
 const BetSchema = new mongoose.Schema({
   userId:            { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   username:          String,
@@ -141,7 +140,6 @@ const BetSchema = new mongoose.Schema({
   createdAt:         { type: Date, default: Date.now, index: true },
 });
 
-/* Transaction */
 const TransactionSchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   type:    { type: String, enum: ['DEPOSIT','WITHDRAWAL'], required: true },
@@ -160,17 +158,15 @@ const TransactionSchema = new mongoose.Schema({
   resolvedBy: { type: String, default: '' },
 });
 
-/* Referral Commission */
 const CommissionSchema = new mongoose.Schema({
   referrerId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   refereeId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   depositAmount: Number,
-  commission:    Number,        // 40% of deposit
+  commission:    Number,
   status:        { type: String, default: 'PAID' },
   createdAt:     { type: Date, default: Date.now },
 });
 
-/* Game Round (for history & provably fair) */
 const RoundSchema = new mongoose.Schema({
   roundId:    { type: Number, unique: true },
   crashPoint: Number,
@@ -181,7 +177,6 @@ const RoundSchema = new mongoose.Schema({
   createdAt:  { type: Date, default: Date.now },
 });
 
-/* Bonus */
 const BonusSchema = new mongoose.Schema({
   userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   type:      { type: String, enum: ['WELCOME','RELOAD','REFERRAL','MANUAL'] },
@@ -191,7 +186,6 @@ const BonusSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-/* Audit Log (admin actions) */
 const AuditSchema = new mongoose.Schema({
   adminId: String,
   action:  String,
@@ -228,7 +222,6 @@ const verifyToken = (req, res, next) => {
 };
 
 const verifyAdmin = (req, res, next) => {
-  // Support both header-based secret (legacy) and JWT admin role
   const secret = req.headers['x-admin-secret'];
   if (secret === ADMIN_SECRET) {
     req.adminId = 'header-auth';
@@ -255,7 +248,6 @@ async function logAudit(adminId, action, target, meta = {}, ip = '') {
 /* ────────────────────────────────────────
    INPUT VALIDATION HELPERS
 ──────────────────────────────────────── */
-const isValidPhone = (p) => /^(?:0|254|\+254)[17]\d{8}$/.test((p||'').replace(/\s/g,''));
 const isValidAmount = (a, min, max) => {
   const n = parseFloat(a);
   return !isNaN(n) && n >= min && (!max || n <= max);
@@ -302,19 +294,17 @@ app.post('/api/register', async (req, res) => {
       referredBy:   referralCode || '',
     });
 
-    // Apply 200% welcome bonus if site has it enabled (flag)
     if (process.env.WELCOME_BONUS_ENABLED === 'true') {
       await Bonus.create({
         userId: user._id,
         type:   'WELCOME',
-        amount: 0, // credited on first deposit
+        amount: 0, 
         status: 'PENDING',
         expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
       });
     }
 
     tgSend(`👤 *NEW REGISTRATION*\n📱 Phone: ${localPhone}\n🏷️ Ref Code: ${refCode}`);
-
     res.status(201).json({ message: 'Registration successful! You can now log in.' });
   } catch (err) {
     console.error('[register]', err.message);
@@ -322,27 +312,29 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-/* POST /api/login */
+/* POST /api/login (FIXED: Supports both Phone and Text Username) */
 app.post('/api/login', async (req, res) => {
   try {
-    const phone    = req.body.username || req.body.phone || '';
-    const password = req.body.password || '';
+    const identifier = req.body.username || req.body.phone || '';
+    const password   = req.body.password || '';
 
-    if (!phone || !password)
-      return res.status(400).json({ error: 'Phone and password required.' });
+    if (!identifier || !password)
+      return res.status(400).json({ error: 'Username/Phone and password required.' });
 
-    const localPhone = toLocalPhone(phone);
-    const user = await User.findOne({ phone: localPhone });
-    if (!user) return res.status(400).json({ error: 'Invalid phone number or password.' });
-    if (user.status === 'banned')
-      return res.status(403).json({ error: 'Your account has been banned.' });
-    if (user.status === 'suspended')
-      return res.status(403).json({ error: 'Your account is suspended. Contact support.' });
+    // Detect if input is a phone number (digits/plus) or a text username
+    const isPhone = /^[0-9+\s]+$/.test(identifier);
+    const query = isPhone 
+        ? { phone: toLocalPhone(identifier) } 
+        : { username: new RegExp(`^${identifier}$`, 'i') }; 
+
+    const user = await User.findOne(query);
+    if (!user) return res.status(400).json({ error: 'Invalid credentials.' });
+    if (user.status === 'banned') return res.status(403).json({ error: 'Your account has been banned.' });
+    if (user.status === 'suspended') return res.status(403).json({ error: 'Your account is suspended. Contact support.' });
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ error: 'Invalid phone number or password.' });
+    if (!match) return res.status(400).json({ error: 'Invalid credentials.' });
 
-    // Update last login
     user.lastLogin = new Date();
     user.loginIP   = req.ip || '';
     await user.save();
@@ -351,13 +343,13 @@ app.post('/api/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id:       user._id,
-        phone:    user.phone,
-        username: user.username,
-        email:    user.email,
-        balance:  user.balance,
+        id:           user._id,
+        phone:        user.phone,
+        username:     user.username,
+        email:        user.email,
+        balance:      user.balance,
         referralCode: user.referralCode,
-        role:     user.role,
+        role:         user.role,
       },
     });
   } catch (err) {
@@ -391,14 +383,11 @@ app.put('/api/me', verifyToken, async (req, res) => {
   }
 });
 
-/* POST /api/change-password */
 app.post('/api/change-password', verifyToken, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
-    if (!oldPassword || !newPassword)
-      return res.status(400).json({ error: 'Both old and new passwords are required.' });
-    if (newPassword.length < 6)
-      return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    if (!oldPassword || !newPassword) return res.status(400).json({ error: 'Both old and new passwords are required.' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
 
     const user = await User.findById(req.user.id);
     const match = await bcrypt.compare(oldPassword, user.password);
@@ -424,8 +413,7 @@ app.post('/api/deposit', async (req, res) => {
 
     const user = await User.findOne({ $or: [{ phone: username }, { username }] });
     if (!user) return res.status(404).json({ error: 'User not found.' });
-    if (user.status !== 'active')
-      return res.status(403).json({ error: 'Account is not active.' });
+    if (user.status !== 'active') return res.status(403).json({ error: 'Account is not active.' });
 
     const formatted = sanitizePhone(phone || user.phone);
 
@@ -444,12 +432,9 @@ app.post('/api/deposit', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(payload),
     });
-    const mpData = await mpRes.json();
+    
+    if (!mpRes.ok) return res.status(502).json({ error: 'Payment gateway error. Please try again.' });
 
-    if (!mpRes.ok)
-      return res.status(502).json({ error: 'Payment gateway error. Please try again.' });
-
-    // Log as pending
     await Transaction.create({
       userId: user._id,
       type:   'DEPOSIT',
@@ -469,7 +454,6 @@ app.post('/api/deposit', async (req, res) => {
    MEGAPAY WEBHOOK
 ──────────────────────────────────────── */
 app.post('/api/megapay/webhook', async (req, res) => {
-  // Acknowledge immediately so MegaPay doesn't retry
   res.status(200).send('OK');
 
   const data = req.body;
@@ -485,65 +469,55 @@ app.post('/api/megapay/webhook', async (req, res) => {
 
     if (!amount || !receipt) return;
 
-    // Idempotency check
     const dup = await Transaction.findOne({ receipt });
     if (dup) return;
 
     const user = await User.findOne({ phone: local });
     if (!user) {
-      console.warn(`[webhook] Unknown phone: ${local} paid KES ${amount}`);
       tgSend(`⚠️ *UNREGISTERED PAYMENT*\n📱 ${local}\n💰 KES ${amount}\n🧾 ${receipt}`);
       return;
     }
 
-    // Credit balance
-    user.balance      += amount;
-    user.totalDeposit += amount;
-    await user.save();
+    // Atomic Balance Credit
+    await User.findByIdAndUpdate(user._id, {
+        $inc: { balance: amount, totalDeposit: amount }
+    });
 
-    // Mark pending tx as completed (find by userId + PENDING, update first match)
     await Transaction.findOneAndUpdate(
       { userId: user._id, type: 'DEPOSIT', status: 'PENDING' },
       { status: 'COMPLETED', receipt },
       { sort: { createdAt: -1 } }
     );
-    // Also create final record in case no pending found
+    
     await Transaction.create({
       userId: user._id, type: 'DEPOSIT', amount,
       status: 'COMPLETED', receipt, phone: local,
-    }).catch(() => {}); // ignore duplicate key
+    }).catch(() => {});
 
-    // Handle referral commission (40% on first deposit)
     if (user.referredBy) {
       const referrer = await User.findOne({ referralCode: user.referredBy });
       const isFirst  = await Transaction.countDocuments({ userId: user._id, type: 'DEPOSIT', status: 'COMPLETED' });
       if (referrer && isFirst === 1) {
         const commission = parseFloat((amount * 0.40).toFixed(2));
-        referrer.balance += commission;
-        await referrer.save();
-        await Commission.create({
-          referrerId:    referrer._id,
-          refereeId:     user._id,
-          depositAmount: amount,
-          commission,
-        });
+        await User.findByIdAndUpdate(referrer._id, { $inc: { balance: commission } });
+        await Commission.create({ referrerId: referrer._id, refereeId: user._id, depositAmount: amount, commission });
         tgSend(`🤝 *REFERRAL COMMISSION*\n👤 Referrer: ${referrer.phone}\n💰 Commission: KES ${commission}`);
       }
     }
 
-    // Apply welcome bonus on first deposit
     const pendingBonus = await Bonus.findOne({ userId: user._id, type: 'WELCOME', status: 'PENDING' });
     if (pendingBonus) {
       const bonusAmt = parseFloat((amount * 2).toFixed(2)); // 200%
-      user.balance  += bonusAmt;
-      await user.save();
+      await User.findByIdAndUpdate(user._id, { $inc: { balance: bonusAmt } });
       pendingBonus.amount = bonusAmt;
       pendingBonus.status = 'APPLIED';
       await pendingBonus.save();
       tgSend(`🎁 *WELCOME BONUS APPLIED*\n👤 ${user.phone}\n💰 Bonus: KES ${bonusAmt}`);
     }
 
-    tgSend(`💵 *DEPOSIT CONFIRMED*\n👤 ${user.phone}\n💰 KES ${amount}\n🧾 ${receipt}\n💳 New Balance: KES ${user.balance.toFixed(2)}`);
+    // Grab updated balance for notification
+    const updatedUser = await User.findById(user._id);
+    tgSend(`💵 *DEPOSIT CONFIRMED*\n👤 ${updatedUser.phone}\n💰 KES ${amount}\n🧾 ${receipt}\n💳 New Balance: KES ${updatedUser.balance.toFixed(2)}`);
 
   } catch (err) {
     console.error('[webhook]', err.message);
@@ -551,7 +525,7 @@ app.post('/api/megapay/webhook', async (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   WITHDRAWAL
+   WITHDRAWAL (FIXED: ATOMIC PREVENTS RACE CONDITIONS)
 ──────────────────────────────────────── */
 app.post('/api/withdraw', async (req, res) => {
   try {
@@ -560,18 +534,26 @@ app.post('/api/withdraw', async (req, res) => {
     if (!isValidAmount(amount, MIN_WITHDRAW, MAX_WITHDRAW))
       return res.status(400).json({ error: `Withdrawal must be between KES ${MIN_WITHDRAW} and KES ${MAX_WITHDRAW}.` });
 
-    const user = await User.findOne({ $or: [{ phone: username }, { username }] });
-    if (!user) return res.status(404).json({ error: 'User not found.' });
-    if (user.status !== 'active')
-      return res.status(403).json({ error: 'Account is not active.' });
-
     const amt = parseFloat(amount);
-    if (user.balance < amt)
-      return res.status(400).json({ error: 'Insufficient balance.' });
 
-    // Deduct instantly
-    user.balance = parseFloat((user.balance - amt).toFixed(2));
-    await user.save();
+    // ATOMIC DEDUCTION: Impossible to double-withdraw or drop below 0
+    const user = await User.findOneAndUpdate(
+        { 
+            $or: [{ phone: username }, { username }], 
+            status: 'active',
+            balance: { $gte: amt } // Crucial: Ensures balance doesn't drop below 0
+        },
+        { $inc: { balance: -amt } },
+        { new: true }
+    );
+
+    if (!user) {
+        // Give explicit error if atomic query failed
+        const userCheck = await User.findOne({ $or: [{ phone: username }, { username }] });
+        if (!userCheck) return res.status(404).json({ error: 'User not found.' });
+        if (userCheck.status !== 'active') return res.status(403).json({ error: 'Account is not active.' });
+        return res.status(400).json({ error: 'Insufficient balance.' });
+    }
 
     await Transaction.create({
       userId: user._id,
@@ -581,7 +563,7 @@ app.post('/api/withdraw', async (req, res) => {
       status: 'PENDING_ADMIN_APPROVAL',
     });
 
-    tgSend(`🚨 *WITHDRAWAL REQUEST*\n👤 ${user.phone}\n💰 KES ${amt}\n💳 Remaining: KES ${user.balance.toFixed(2)}\n\n_Process via M-Pesa or Admin Panel._`);
+    tgSend(`🚨 *WITHDRAWAL REQUEST*\n👤 ${user.phone}\n💰 KES ${amt}\n💳 Remaining: KES ${user.balance.toFixed(2)}\n\n_Process via Admin Panel._`);
 
     res.json({ message: 'Withdrawal request submitted. Admin will process it shortly.', newBalance: user.balance });
   } catch (err) {
@@ -594,7 +576,6 @@ app.post('/api/withdraw', async (req, res) => {
    USER-FACING DATA ENDPOINTS
 ──────────────────────────────────────── */
 
-/* Bet history */
 app.get('/api/history/:username', async (req, res) => {
   try {
     const user = await User.findOne({ $or: [{ phone: req.params.username }, { username: req.params.username }] });
@@ -606,7 +587,6 @@ app.get('/api/history/:username', async (req, res) => {
   }
 });
 
-/* Wallet transactions */
 app.get('/api/transactions/:username', async (req, res) => {
   try {
     const user = await User.findOne({ $or: [{ phone: req.params.username }, { username: req.params.username }] });
@@ -618,7 +598,6 @@ app.get('/api/transactions/:username', async (req, res) => {
   }
 });
 
-/* Leaderboard */
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const top = await User.find({ totalWins: { $gt: 0 } })
@@ -636,7 +615,6 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
-/* Game round history (provably fair) */
 app.get('/api/rounds', async (req, res) => {
   try {
     const rounds = await Round.find({}).sort({ roundId: -1 }).limit(30).select('-serverSeed');
@@ -646,7 +624,6 @@ app.get('/api/rounds', async (req, res) => {
   }
 });
 
-/* Verify a specific round (provably fair) */
 app.get('/api/rounds/:roundId/verify', async (req, res) => {
   try {
     const round = await Round.findOne({ roundId: parseInt(req.params.roundId) });
@@ -658,7 +635,6 @@ app.get('/api/rounds/:roundId/verify', async (req, res) => {
   }
 });
 
-/* Referral stats */
 app.get('/api/referrals/:phone', async (req, res) => {
   try {
     const user = await User.findOne({ phone: req.params.phone });
@@ -675,7 +651,6 @@ app.get('/api/referrals/:phone', async (req, res) => {
    ADMIN API
 ──────────────────────────────────────── */
 
-/* GET all users */
 app.get('/api/admin/users', verifyAdmin, async (req, res) => {
   try {
     const { page=1, limit=50, search='', status='' } = req.query;
@@ -693,7 +668,6 @@ app.get('/api/admin/users', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch users.' }); }
 });
 
-/* GET single user */
 app.get('/api/admin/users/:id', verifyAdmin, async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
@@ -704,7 +678,6 @@ app.get('/api/admin/users/:id', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch user.' }); }
 });
 
-/* PUT adjust balance */
 app.put('/api/admin/users/:id/balance', verifyAdmin, async (req, res) => {
   try {
     const { balance, reason } = req.body;
@@ -719,7 +692,6 @@ app.put('/api/admin/users/:id/balance', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to update balance.' }); }
 });
 
-/* PUT update user status */
 app.put('/api/admin/users/:id/status', verifyAdmin, async (req, res) => {
   try {
     const { status } = req.body;
@@ -732,7 +704,6 @@ app.put('/api/admin/users/:id/status', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to update status.' }); }
 });
 
-/* DELETE user */
 app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
@@ -742,7 +713,6 @@ app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to delete user.' }); }
 });
 
-/* GET pending withdrawals */
 app.get('/api/admin/transactions/pending', verifyAdmin, async (req, res) => {
   try {
     const txs = await Transaction.find({ type: 'WITHDRAWAL', status: 'PENDING_ADMIN_APPROVAL' })
@@ -752,7 +722,6 @@ app.get('/api/admin/transactions/pending', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch pending withdrawals.' }); }
 });
 
-/* GET all transactions */
 app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   try {
     const { page=1, limit=50, type='', status='' } = req.query;
@@ -771,7 +740,6 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch transactions.' }); }
 });
 
-/* PUT approve withdrawal */
 app.put('/api/admin/transactions/:id/approve', verifyAdmin, async (req, res) => {
   try {
     const tx = await Transaction.findById(req.params.id).populate('userId','phone');
@@ -790,7 +758,6 @@ app.put('/api/admin/transactions/:id/approve', verifyAdmin, async (req, res) => 
   } catch (err) { res.status(500).json({ error: 'Failed to approve.' }); }
 });
 
-/* PUT reject withdrawal (refund user) */
 app.put('/api/admin/transactions/:id/reject', verifyAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
@@ -805,18 +772,15 @@ app.put('/api/admin/transactions/:id/reject', verifyAdmin, async (req, res) => {
     tx.resolvedBy = req.adminId;
     await tx.save();
 
-    const user = await User.findById(tx.userId);
-    if (user) {
-      user.balance = parseFloat((user.balance + tx.amount).toFixed(2));
-      await user.save();
-    }
+    // Refund User Atomically
+    const user = await User.findByIdAndUpdate(tx.userId, { $inc: { balance: tx.amount } });
+    
     await logAudit(req.adminId, 'REJECT_WITHDRAWAL', user?.phone, { amount: tx.amount, reason }, req.ip);
     tgSend(`❌ *WITHDRAWAL REJECTED*\n👤 ${user?.phone}\n💰 KES ${tx.amount} refunded`);
     res.json({ message: 'Withdrawal rejected. Balance refunded to user.' });
   } catch (err) { res.status(500).json({ error: 'Failed to reject.' }); }
 });
 
-/* GET bets (admin) */
 app.get('/api/admin/bets', verifyAdmin, async (req, res) => {
   try {
     const { page=1, limit=50, phone='' } = req.query;
@@ -831,7 +795,6 @@ app.get('/api/admin/bets', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch bets.' }); }
 });
 
-/* GET dashboard stats */
 app.get('/api/admin/stats', verifyAdmin, async (req, res) => {
   try {
     const now      = new Date();
@@ -871,7 +834,6 @@ app.get('/api/admin/stats', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch stats.' }); }
 });
 
-/* POST bulk credit users */
 app.post('/api/admin/bulk-credit', verifyAdmin, async (req, res) => {
   try {
     const { phones, amount, reason } = req.body;
@@ -880,8 +842,8 @@ app.post('/api/admin/bulk-credit', verifyAdmin, async (req, res) => {
 
     let credited = 0;
     for (const phone of phones) {
-      const user = await User.findOne({ phone: toLocalPhone(phone) });
-      if (user) { user.balance += parseFloat(amount); await user.save(); credited++; }
+      const user = await User.findOneAndUpdate({ phone: toLocalPhone(phone) }, { $inc: { balance: parseFloat(amount) }});
+      if (user) credited++;
     }
     await logAudit(req.adminId, 'BULK_CREDIT', `${credited} users`, { amount, reason }, req.ip);
     tgSend(`💸 *BULK CREDIT*\n📊 Users credited: ${credited}\n💰 KES ${amount} each\n📝 ${reason||'—'}`);
@@ -889,7 +851,6 @@ app.post('/api/admin/bulk-credit', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Bulk credit failed.' }); }
 });
 
-/* GET audit log */
 app.get('/api/admin/audit', verifyAdmin, async (req, res) => {
   try {
     const logs = await Audit.find({}).sort({ createdAt: -1 }).limit(100);
@@ -897,14 +858,12 @@ app.get('/api/admin/audit', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch audit log.' }); }
 });
 
-/* POST manual send bonus */
 app.post('/api/admin/bonus', verifyAdmin, async (req, res) => {
   try {
     const { phone, amount, reason } = req.body;
-    const user = await User.findOne({ phone: toLocalPhone(phone) });
+    const user = await User.findOneAndUpdate({ phone: toLocalPhone(phone) }, { $inc: { balance: parseFloat(amount) }}, { new: true });
     if (!user) return res.status(404).json({ error: 'User not found.' });
-    user.balance += parseFloat(amount);
-    await user.save();
+
     await Bonus.create({ userId: user._id, type: 'MANUAL', amount, status: 'APPLIED' });
     await logAudit(req.adminId, 'MANUAL_BONUS', user.phone, { amount, reason }, req.ip);
     tgSend(`🎁 *MANUAL BONUS*\n👤 ${user.phone}\n💰 KES ${amount}\n📝 ${reason||'—'}`);
@@ -916,7 +875,6 @@ app.post('/api/admin/bonus', verifyAdmin, async (req, res) => {
    GAME ENGINE — ADMIN CONTROLS
 ──────────────────────────────────────── */
 
-/* Override next crash */
 app.post('/api/admin/override', verifyAdmin, (req, res) => {
   const val = parseFloat(req.body.multiplier);
   if (isNaN(val) || val < 1.0)
@@ -927,7 +885,6 @@ app.post('/api/admin/override', verifyAdmin, (req, res) => {
   res.json({ message: `Next round will crash at ${val.toFixed(2)}×` });
 });
 
-/* Emergency instant crash */
 app.post('/api/admin/emergency-crash', verifyAdmin, (req, res) => {
   if (gameState !== 'FLYING')
     return res.status(400).json({ error: 'Game is not flying.' });
@@ -949,7 +906,6 @@ app.post('/api/admin/emergency-crash', verifyAdmin, (req, res) => {
   res.json({ message: `Emergency crash executed at ${crashedAt.toFixed(2)}×` });
 });
 
-/* GET current game state */
 app.get('/api/admin/game-state', verifyAdmin, (req, res) => {
   res.json({
     state:             gameState,
@@ -1007,7 +963,6 @@ async function processCrashedBets() {
         winnings:          0,
         roundId:           String(roundCounter),
       });
-      // Update user stats
       await User.findByIdAndUpdate(b.userId, { $inc: { totalBets: 1 } });
     } catch {}
   }
@@ -1023,14 +978,11 @@ function startRound() {
   targetCrashPoint = generateCrashPoint();
   saveRound(roundCounter, targetCrashPoint, seed);
 
-  // Broadcast waiting state
   io.emit('game_state', { state: 'WAITING', roundId: roundCounter, history: history.slice(0,15) });
-
-  // Notify Telegram (5s before launch)
   tgSend(`⚠️ *Round #${roundCounter}*\n🎯 Crash: *${targetCrashPoint.toFixed(2)}x*`);
 
   setTimeout(() => {
-    if (gameState !== 'WAITING') return; // aborted by emergency crash
+    if (gameState !== 'WAITING') return;
 
     gameState = 'FLYING';
     io.emit('game_state', { state: 'FLYING', roundId: roundCounter });
@@ -1060,9 +1012,9 @@ function startRound() {
 
 /* ────────────────────────────────────────
    SOCKET.IO — PLAYER BETTING
+   (FIXED: ATOMIC PREVENTS RACE CONDITIONS)
 ──────────────────────────────────────── */
 io.on('connection', (socket) => {
-  // Send current game state on connect
   socket.emit('game_state', {
     state:      gameState,
     roundId:    roundCounter,
@@ -1080,18 +1032,21 @@ io.on('connection', (socket) => {
 
       if (!identifier || isNaN(amount) || amount <= 0)
         return socket.emit('error', 'Invalid bet data.');
-      if (amount < 10)
-        return socket.emit('error', 'Minimum bet is KES 10.');
-      if (amount > 50000)
-        return socket.emit('error', 'Maximum bet is KES 50,000.');
+      if (amount < 10) return socket.emit('error', 'Minimum bet is KES 10.');
+      if (amount > 50000) return socket.emit('error', 'Maximum bet is KES 50,000.');
 
-      const user = await User.findOne({ $or: [{ phone: identifier }, { username: identifier }] });
-      if (!user)         return socket.emit('error', 'User not found.');
-      if (user.balance < amount) return socket.emit('error', 'Insufficient balance.');
-      if (user.status !== 'active') return socket.emit('error', 'Account is not active.');
+      // ATOMIC DEDUCTION
+      const user = await User.findOneAndUpdate(
+          { 
+              $or: [{ phone: identifier }, { username: identifier }], 
+              status: 'active',
+              balance: { $gte: amount } 
+          },
+          { $inc: { balance: -amount } },
+          { new: true }
+      );
 
-      user.balance = parseFloat((user.balance - amount).toFixed(2));
-      await user.save();
+      if (!user) return socket.emit('error', 'Insufficient balance or account inactive.');
 
       const betIndex = data.betIndex !== undefined ? parseInt(data.betIndex) : 0;
       const betKey   = `${socket.id}_${betIndex}`;
@@ -1119,13 +1074,21 @@ io.on('connection', (socket) => {
       const multi   = parseFloat(currentMult.toFixed(4));
       const winnings= parseFloat((bet.amount * multi).toFixed(2));
 
+      // SYNCHRONOUS DELETE PREVENTS DOUBLE EXECUTION
       delete activeRoundBets[betKey];
 
-      const user = await User.findById(bet.userId);
-      user.balance    = parseFloat((user.balance + winnings).toFixed(2));
-      user.totalBets  = (user.totalBets  || 0) + 1;
-      user.totalWins  = parseFloat(((user.totalWins || 0) + winnings).toFixed(2));
-      await user.save();
+      // ATOMIC ADDITION
+      const user = await User.findByIdAndUpdate(
+          bet.userId, 
+          { 
+              $inc: { 
+                  balance: winnings, 
+                  totalBets: 1, 
+                  totalWins: winnings 
+              } 
+          }, 
+          { new: true }
+      );
 
       await Bet.create({
         userId:            user._id,
@@ -1188,7 +1151,6 @@ app.get('/api/status', (req, res) => {
 app.use((req, res) => {
   if (req.path.startsWith('/api/'))
     return res.status(404).json({ error: 'Endpoint not found.' });
-  // SPA fallback
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
