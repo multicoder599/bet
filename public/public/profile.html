@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>UrbanBet — My Profile</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    .bottom-nav { justify-content: space-around; }
+    .bottom-nav .bn-item { flex: 1; }
+  </style>
+</head>
+<body>
+
+<div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="logo">Urban<span>Bet</span></span>
+    <button style="background:none;border:none;color:var(--text2);font-size:18px;padding:6px;border-radius:8px;cursor:pointer;display:flex;align-items:center" onclick="closeDrawer()">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+  </div>
+  <div class="drawer-user-row" onclick="window.location.href='profile.html'">
+    <div class="drawer-avatar"><i class="fa-regular fa-user" id="drawerAvatarIcon"></i></div>
+    <span class="d-username" id="drawerUsername">Log in to your account</span>
+    <i class="fa-solid fa-chevron-right d-chevron"></i>
+  </div>
+  <nav class="drawer-nav">
+    <div class="drawer-section-label">Casino</div>
+    <a class="dnav-item" href="index.html"><i class="fa-solid fa-grid-2"></i> Casino</a>
+    <a class="dnav-item" href="sports.html"><i class="fa-solid fa-globe"></i> Sports</a>
+    <a class="dnav-item" href="bonuses.html"><i class="fa-solid fa-gift"></i> Bonuses <span class="dnav-badge">1</span></a>
+    <div class="dnav-sep"></div>
+    <div class="drawer-section-label">Account</div>
+    <a class="dnav-item active" href="profile.html"><i class="fa-regular fa-user"></i> My Profile</a>
+    <a class="dnav-item" href="wallet.html"><i class="fa-solid fa-wallet"></i> Wallet</a>
+    <a class="dnav-item" href="settings.html"><i class="fa-solid fa-gear"></i> Settings</a>
+  </nav>
+  <div class="drawer-footer">
+    <div id="drawerAuthGroup">
+      <button class="btn-register wide" onclick="window.location.href='auth.html?mode=register'">Register Free</button>
+    </div>
+    <div id="drawerUserGroup" class="hidden">
+      <button class="drawer-logout" onclick="doLogout()">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </div>
+</aside>
+
+<header class="header">
+  <div class="header-left">
+    <button class="icon-btn" onclick="openDrawer()"><i class="fa-solid fa-bars"></i></button>
+    <a class="logo" href="index.html">Urban<span>Bet</span></a>
+  </div>
+  <div class="header-right">
+    <div id="balWrap" style="display:none">
+      <div class="bal-chip" onclick="window.location.href='wallet.html'">
+        <span class="bal-amount" id="balAmount">KES 0.00</span>
+        <span class="bal-plus"><i class="fa-solid fa-plus"></i></span>
+      </div>
+    </div>
+    <button class="btn-login" id="btnLogin" onclick="window.location.href='auth.html?mode=login'">Login</button>
+    <button class="btn-register" id="btnRegister" onclick="window.location.href='auth.html?mode=register'">Register</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="main">
+    <div class="page-inner" id="pageContent">
+      </div>
+  </div>
+</div>
+
+<nav class="bottom-nav mobile-only">
+  <a class="bn-item" href="index.html">
+    <i class="fa-solid fa-house"></i><span>Home</span>
+  </a>
+  <a class="bn-item" href="sports.html">
+    <i class="fa-solid fa-globe"></i><span>Sports</span>
+  </a>
+  <a class="bn-item" href="wallet.html">
+    <i class="fa-solid fa-wallet"></i><span>Wallet</span>
+  </a>
+  <a class="bn-item active" href="profile.html">
+    <i class="fa-regular fa-user"></i><span>Profile</span>
+  </a>
+</nav>
+
+<script>
+  /* ═══════════════════════════════════════════════
+     URBANBET — PROFILE.HTML SCRIPT (STANDALONE PRO)
+     Live Backend Connected - Auto Logout Bug Fixed
+  ═══════════════════════════════════════════════ */
+  const API_BASE_URL = "https://bet-6jn6.onrender.com";
+  
+  /* ═════════════════════════
+     1. CORE UTILITIES & AUTH
+  ═════════════════════════ */
+  const Session = {
+    KEY: 'ub_session',
+    get() { try { return JSON.parse(localStorage.getItem(this.KEY)); } catch(e) { return null; } },
+    getUser() { return this.get()?.user || null; },
+    getToken() { return this.get()?.token || null; },
+    clear() { localStorage.removeItem(this.KEY); window.location.href = 'index.html'; },
+    update(patch) {
+      const s = this.get();
+      if (!s) return;
+      s.user = { ...s.user, ...patch };
+      localStorage.setItem(this.KEY, JSON.stringify(s));
+    }
+  };
+  
+  const Auth = { logout: () => Session.clear() };
+  
+  async function apiFetch(path, options = {}) {
+    const headers = { 'Content-Type': 'application/json', ...options.headers };
+    const token = Session.getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(API_BASE_URL + path, { ...options, headers });
+  }
+  
+  function showToast(msg, type='info') {
+    let t = document.getElementById('ub-toast');
+    if(!t) { 
+        t = document.createElement('div'); 
+        t.id = 'ub-toast'; 
+        t.style.cssText = "position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#1e252e; border:1px solid #2a3340; color:white; padding:12px 24px; border-radius:8px; font-size:13px; font-weight:bold; z-index:9999; box-shadow:0 10px 30px rgba(0,0,0,0.8); transition:opacity 0.3s; opacity:0; pointer-events:none;";
+        document.body.appendChild(t); 
+    }
+    t.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check text-[#1bc24b]' : type === 'error' ? 'fa-triangle-exclamation text-[#e8294a]' : 'fa-circle-info text-[#108ee9]'} mr-2"></i> ${msg}`;
+    t.style.opacity = '1';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.style.opacity = '0', 2600);
+  }
+  
+  function fmtMoney(n) { return Number(n||0).toLocaleString('en-KE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(iso) { 
+    if(!iso) return '';
+    const d = typeof iso === 'string' ? new Date(iso) : iso;
+    return d.toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}); 
+  }
+  
+  /* ═════════════════════════
+     2. HEADER & DRAWER LOGIC
+  ═════════════════════════ */
+  async function initHeader() {
+    const user = Session.getUser();
+    const loginBtn    = document.getElementById('btnLogin');
+    const registerBtn = document.getElementById('btnRegister');
+    const balWrap     = document.getElementById('balWrap');
+    const balAmount   = document.getElementById('balAmount');
+    const drawerAuth  = document.getElementById('drawerAuthGroup');
+    const drawerUser  = document.getElementById('drawerUserGroup');
+    const drawerName  = document.getElementById('drawerUsername');
+    const drawerAvIcon= document.getElementById('drawerAvatarIcon');
+  
+    if (user) {
+      if(loginBtn) loginBtn.classList.add('hidden');
+      if(registerBtn) registerBtn.classList.add('hidden');
+      if(balWrap) { balWrap.classList.remove('hidden'); balWrap.style.display='flex'; }
+      if(balAmount) balAmount.textContent='KES '+fmtMoney(user.balance);
+      if(drawerAuth) drawerAuth.classList.add('hidden');
+      if(drawerUser) drawerUser.classList.remove('hidden');
+      if(drawerName) drawerName.textContent = user.username || user.name || user.phone;
+      if(drawerAvIcon) drawerAvIcon.style.display = 'none';
+    } else {
+      if(balWrap) balWrap.classList.add('hidden');
+      if(drawerAuth) drawerAuth.classList.remove('hidden');
+      if(drawerUser) drawerUser.classList.add('hidden');
+    }
+  }
+  
+  function openDrawer() {
+    document.getElementById('drawer')?.classList.add('open');
+    document.getElementById('drawerMask')?.classList.add('open');
+    document.body.style.overflow='hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer')?.classList.remove('open');
+    document.getElementById('drawerMask')?.classList.remove('open');
+    document.body.style.overflow='';
+  }
+  
+  // Swipe gestures
+  (function(){
+    let sx=0,sy=0,drag=false,cx=0;
+    const EDGE=32,OT=80,CT=-60;
+    const dw=()=>document.getElementById('drawer');
+    const mk=()=>document.getElementById('drawerMask');
+    document.addEventListener('touchstart',e=>{
+      const t=e.touches[0];sx=t.clientX;sy=t.clientY;drag=false;cx=sx;
+      const o=dw()?.classList.contains('open');
+      if((!o&&sx<=EDGE)||o){drag=true;if(dw())dw().style.transition='none';}
+    },{passive:true});
+    document.addEventListener('touchmove',e=>{
+      if(!drag)return;
+      const t=e.touches[0];const dx=t.clientX-sx;const dy=t.clientY-sy;
+      if(Math.abs(dy)>Math.abs(dx)*1.5){drag=false;return;}
+      e.preventDefault();cx=t.clientX;
+      const o=dw()?.classList.contains('open');
+      const DW=dw()?.offsetWidth||280;
+      if(!o){const p=Math.min(dx/DW,1);dw().style.left=`${-DW*(1-p)}px`;const m=mk();if(m){m.style.display='block';m.style.opacity=String(p*.8);}}
+      else if(dx<0){dw().style.left=`${dx}px`;const m=mk();if(m)m.style.opacity=String((1+dx/DW)*.8);}
+    },{passive:false});
+    document.addEventListener('touchend',()=>{
+      if(!drag)return;drag=false;
+      const d=dw();if(!d)return;
+      const o=d.classList.contains('open');const dx=cx-sx;
+      d.style.transition='';d.style.left='';
+      const m=mk();if(m){m.style.opacity='';m.style.display='';}
+      if(!o&&dx>OT)openDrawer();
+      else if(o&&dx<CT)closeDrawer();
+    },{passive:true});
+  })();
+  
+  /* ═════════════════════════
+     3. PROFILE INITIALIZATION
+  ═════════════════════════ */
+  document.addEventListener('DOMContentLoaded', () => {
+    initHeader();
+  
+    const user  = Session.getUser();
+    const token = Session.getToken();
+  
+    if (!user || !token) {
+      _showLoginPrompt();
+      return;
+    }
+  
+    // Render skeleton + cached data immediately
+    renderProfile(user, [], null, true);
+  
+    // Fetch live data from backend in parallel
+    _loadLiveProfileData(user);
+  });
+  
+  function _showLoginPrompt() {
+    const pc = document.getElementById('pageContent');
+    if (!pc) return;
+    pc.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 20px;gap:14px;text-align:center">
+        <i class="fa-solid fa-user-lock" style="font-size:44px;color:var(--muted)"></i>
+        <div style="font-size:18px;font-weight:700;color:var(--text)">You're not logged in</div>
+        <p style="color:var(--text2);font-size:13px;max-width:280px;line-height:1.6">Log in to view your profile, bet history, and referral earnings.</p>
+        <button onclick="window.location.href='auth.html?mode=login'"
+          style="height:44px;padding:0 28px;border-radius:10px;background:var(--blue);color:#fff;font-size:14px;font-weight:700;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 14px var(--blue-glow,rgba(59,91,219,.35))">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Login
+        </button>
+      </div>`;
+  }
+  
+  /* Fetch fresh user + bets + referral data safely */
+  async function _loadLiveProfileData(cachedUser) {
+    try {
+      const targetPhone = cachedUser.phone || cachedUser.username;
+  
+      // 1. Fetch history & referrals (Catch errors independently so one failure doesn't break the page)
+      const [histRes, refRes] = await Promise.all([
+        apiFetch(`/api/history/${targetPhone}`).catch(() => null),
+        apiFetch(`/api/referrals/${targetPhone}`).catch(() => null) 
+      ]);
+  
+      let user = cachedUser;
+  
+      // 2. Only attempt silent balance sync IF we securely hold the password
+      if (cachedUser.password) {
+          const loginRes = await fetch(`${API_BASE_URL}/api/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone: cachedUser.phone, password: cachedUser.password })
+          }).catch(() => null);
+  
+          if (loginRes && loginRes.ok) {
+              const data = await loginRes.json();
+              user = data.user;
+              user.password = cachedUser.password; // Preserve for future syncs
+          } else if (loginRes && (loginRes.status === 401 || loginRes.status === 403)) {
+              // STRICT AUTH CHECK: Only clear session if token/password is explicitly rejected
+              Session.clear();
+              _showLoginPrompt();
+              return;
+          }
+      }
+  
+      const bets = (histRes && histRes.ok) ? await histRes.json() : [];
+      const ref  = (refRes && refRes.ok)  ? await refRes.json()  : null;
+  
+      // Persist fresh user to session
+      Session.update(user);
+      initHeader(); // Update top bar balance
+  
+      // Re-render with live data
+      renderProfile(user, bets, ref, false);
+  
+    } catch (e) {
+      console.error("Live profile sync failed:", e);
+      // Backend offline / cold start — re-render with cached user, empty bets, no error
+      renderProfile(Session.getUser() || cachedUser, [], null, false);
+    }
+  }
+  
+  /* ════ RENDER PROFILE ════ */
+  function renderProfile(u, bets, ref, loading) {
+    const pc = document.getElementById('pageContent');
+    if (!pc) return;
+  
+    const initials  = (u.username || u.name || u.phone || '?').substring(0, 2).toUpperCase();
+    const sinceDate = u.createdAt ? fmtDate(new Date(u.createdAt)) : 'Recently';
+    
+    const totalBets = Array.isArray(bets) ? bets.length : (u.totalBets || 0);
+    const totalWon  = Array.isArray(bets) ? bets.reduce((s, b) => s + (b.winnings > 0 ? b.winnings : 0), 0) : (u.totalWins || 0);
+    const totalDep  = u.totalDeposit || 0;
+  
+    const refCode  = u.referralCode || ('URBAN-' + (u.phone || '000000').slice(-6).toUpperCase());
+    const refCount = ref?.referralCount || 0;
+    const refEarned= ref?.totalCommission || 0;
+  
+    // ─── Bet table rows ───
+    let betsHtml = '';
+    if (loading) {
+      betsHtml = `<tr><td colspan="7" style="text-align:center;padding:30px">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size:22px;color:var(--blue-lit)"></i>
+      </td></tr>`;
+    } else if (!bets || !bets.length) {
+      betsHtml = `<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:28px;font-size:13px">
+        No bets placed yet. <a href="aviator.html" style="color:var(--blue-lit);font-weight:600">Play Aviator →</a>
+      </td></tr>`;
+    } else {
+      betsHtml = bets.slice(0, 15).map(b => {
+        const win   = b.winnings > 0;
+        const multi = b.cashoutMultiplier > 0 ? b.cashoutMultiplier.toFixed(2) + '×' : '—';
+        return `<tr>
+          <td style="color:var(--text);font-weight:600">Aviator</td>
+          <td style="color:var(--text2)">Crash</td>
+          <td style="font-variant-numeric:tabular-nums">KES ${fmtMoney(b.betAmount)}</td>
+          <td style="color:${win ? 'var(--yellow-lit)' : 'var(--text2)'}">${multi}</td>
+          <td style="color:${win ? 'var(--green-lit)' : '#f87171'};font-weight:700">${win ? 'KES ' + fmtMoney(b.winnings) : 'Lost'}</td>
+          <td><span class="bet-status ${win ? 'bs-won' : 'bs-lost'}">${win ? 'Won' : 'Lost'}</span></td>
+          <td style="color:var(--muted);font-size:12px">${fmtDate(new Date(b.createdAt))}</td>
+        </tr>`;
+      }).join('');
+    }
+  
+    const tier = totalDep >= 100000 ? { label:'Platinum', icon:'fa-crown',  color:'#e5e4e2' }
+               : totalDep >= 50000  ? { label:'Gold',     icon:'fa-crown',  color:'#ffd700' }
+               : totalDep >= 10000  ? { label:'Silver',   icon:'fa-medal',  color:'#c0c0c0' }
+               :                      { label:'Bronze',   icon:'fa-medal',  color:'#cd7f32' };
+  
+    pc.innerHTML = `
+      <h1 class="page-title"><i class="fa-regular fa-user" style="color:var(--blue-lit)"></i> My Profile</h1>
+  
+      <div class="profile-hero">
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar">${initials}</div>
+          <div class="avatar-edit" onclick="showToast('Avatar upload coming soon!', 'info')">
+            <i class="fa-solid fa-camera"></i>
+          </div>
+        </div>
+        <div class="profile-info">
+          <div class="profile-name">${u.username || u.name || 'UrbanBet Player'}</div>
+          <div class="profile-phone"><i class="fa-solid fa-phone" style="font-size:10px;margin-right:4px;opacity:.6"></i>${u.phone || ''}</div>
+          <div class="profile-since"><i class="fa-regular fa-calendar" style="font-size:10px;margin-right:4px;opacity:.6"></i>Member since ${sinceDate}</div>
+        </div>
+        <div class="profile-badge">
+          <div class="pb-emoji"><i class="fa-solid ${tier.icon}" style="font-size:24px;color:${tier.color}"></i></div>
+          <div class="pb-label">${tier.label}</div>
+        </div>
+      </div>
+  
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-val">KES ${fmtMoney(u.balance || 0)}</div>
+          <div class="stat-lbl"><i class="fa-solid fa-wallet" style="color:var(--green-lit);margin-right:4px"></i>Balance</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">${Number(totalBets).toLocaleString()}</div>
+          <div class="stat-lbl"><i class="fa-solid fa-gamepad" style="color:var(--blue-lit);margin-right:4px"></i>Total Bets</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">KES ${fmtMoney(totalWon)}</div>
+          <div class="stat-lbl"><i class="fa-solid fa-trophy" style="color:var(--yellow-lit);margin-right:4px"></i>Total Won</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">KES ${fmtMoney(totalDep)}</div>
+          <div class="stat-lbl"><i class="fa-solid fa-circle-arrow-down" style="color:var(--text2);margin-right:4px"></i>Deposited</div>
+        </div>
+      </div>
+  
+      <div class="section-card">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--blue-lit)"></i> Recent Bets</div>
+          <a href="transactions.html" style="font-size:12px;color:var(--blue-lit);font-weight:600">View all <i class="fa-solid fa-arrow-right" style="font-size:9px"></i></a>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="history-table">
+            <thead>
+              <tr><th>Game</th><th>Type</th><th>Stake</th><th>Multi</th><th>Payout</th><th>Status</th><th>Date</th></tr>
+            </thead>
+            <tbody>${betsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+  
+      <div class="section-card">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-share-nodes" style="color:var(--yellow)"></i> Referral Program</div>
+        </div>
+        <div class="section-card-body" style="padding:16px">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.6">
+            Invite friends and earn <strong style="color:var(--green-lit)">40%</strong> commission on every friend's first deposit.
+          </p>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
+            <i class="fa-solid fa-ticket" style="color:var(--yellow-lit);flex-shrink:0"></i>
+            <span style="flex:1;font-size:14px;font-weight:700;color:var(--yellow-lit);letter-spacing:.8px" id="refCodeText">${refCode}</span>
+            <button onclick="copyRef()" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:14px;padding:4px 7px;border-radius:6px" title="Copy">
+              <i class="fa-regular fa-copy"></i>
+            </button>
+            <button onclick="shareRef('${refCode}')" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:14px;padding:4px 7px;border-radius:6px" title="Share">
+              <i class="fa-solid fa-share-nodes"></i>
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--text)">${refCount}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:3px">Friends Invited</div>
+            </div>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--green-lit)">KES ${fmtMoney(refEarned)}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:3px">Commission Earned</div>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <button onclick="window.location.href='wallet.html'"
+          style="flex:1;min-width:130px;height:44px;border-radius:9px;background:var(--blue);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;border:none;box-shadow:0 4px 14px var(--blue-glow,rgba(59,91,219,.35))">
+          <i class="fa-solid fa-wallet"></i> My Wallet
+        </button>
+        <button onclick="window.location.href='settings.html'"
+          style="flex:1;min-width:130px;height:44px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">
+          <i class="fa-solid fa-gear"></i> Settings
+        </button>
+        <button onclick="doLogout()"
+          style="flex:1;min-width:130px;height:44px;border-radius:9px;background:var(--red-dim,rgba(224,49,49,.14));border:1px solid rgba(220,38,38,.3);color:var(--red-lit,#f03e3e);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">
+          <i class="fa-solid fa-right-from-bracket"></i> Log Out
+        </button>
+      </div>`;
+  }
+  
+  /* ════ ACTIONS ════ */
+  function copyRef() {
+    const t = document.getElementById('refCodeText')?.textContent;
+    if (!t) return;
+    navigator.clipboard.writeText(t).then(() => showToast('Referral code copied!', 'success'));
+  }
+  
+  function shareRef(code) {
+    const text = `Join UrbanBet — Kenya's #1 gaming platform!\nUse my referral code: ${code}\nhttps://bet-6jn6.onrender.com`;
+    if (navigator.share) navigator.share({ title: 'UrbanBet Referral', text });
+    else navigator.clipboard.writeText(text).then(() => showToast('Share link copied!', 'success'));
+  }
+  
+  function doLogout() {
+    Session.clear();
+  }
+  </script>
+</body>
+</html>
