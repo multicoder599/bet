@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>UrbanBet — Sign In / Register</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<style>
+  .auth-bg {
+    min-height:100vh; display:flex; flex-direction:column;
+    background:var(--bg);
+    background-image:
+      radial-gradient(ellipse at 20% 10%, rgba(37,99,235,.1) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 85%, rgba(22,163,74,.07) 0%, transparent 55%);
+  }
+  .auth-topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid var(--border);
+    background:rgba(22,22,24,.8); backdrop-filter:blur(12px);
+  }
+  .auth-body {
+    flex:1; display:flex; align-items:center; justify-content:center;
+    padding:24px 16px 80px;
+  }
+  .auth-card {
+    width:100%; max-width:420px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-xl);
+    box-shadow:0 24px 64px rgba(0,0,0,.55);
+    overflow:hidden;
+  }
+  .auth-card-top {
+    padding:28px 28px 0;
+    text-align:center;
+  }
+  .auth-card-top .logo { font-size:26px; display:block; margin-bottom:6px; }
+  .auth-card-tagline {
+    font-size:13px; color:var(--text2); margin-bottom:20px;
+  }
+  .auth-tabs-bar {
+    display:grid; grid-template-columns:1fr 1fr;
+    background:var(--surface2); border-bottom:1px solid var(--border);
+  }
+  .a-tab {
+    padding:13px; text-align:center;
+    font-size:14px; font-weight:600; color:var(--text2);
+    cursor:pointer; transition:var(--transition);
+    border-bottom:2px solid transparent;
+  }
+  .a-tab.active { color:var(--text); border-bottom-color:var(--blue); background:var(--surface); }
+  .a-tab:hover:not(.active) { color:var(--text); }
+
+  .auth-panels { padding:22px 28px 26px; }
+  .auth-panel  { display:none; flex-direction:column; gap:14px; }
+  .auth-panel.active { display:flex; }
+
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+  .phone-row { display:flex; gap:0; }
+  .phone-prefix {
+    height:44px; padding:0 12px;
+    background:var(--surface3); border:1px solid var(--border);
+    border-right:none; border-radius:var(--radius) 0 0 var(--radius);
+    color:var(--text2); font-size:14px; font-weight:600;
+    display:flex; align-items:center; flex-shrink:0;
+    white-space:nowrap;
+  }
+  .phone-row .form-input { border-radius:0 var(--radius) var(--radius) 0; flex:1; width:100%; }
+
+  .social-logins {
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .btn-social {
+    display:flex; align-items:center; justify-content:center; gap:9px;
+    height:42px; border-radius:9px; width:100%;
+    font-size:13px; font-weight:600; transition:var(--transition);
+    border:1px solid var(--border); background:var(--surface2); color:var(--text);
+  }
+  .btn-social:hover { background:var(--surface3); }
+  .btn-social .soc-icon { font-size:18px; }
+
+  .strength-bar {
+    display:flex; gap:3px; margin-top:4px;
+  }
+  .str-seg {
+    flex:1; height:3px; border-radius:2px; background:var(--surface3);
+    transition:background .3s;
+  }
+  .strength-label { font-size:11px; margin-top:3px; }
+
+  .checkbox-row {
+    display:flex; align-items:flex-start; gap:8px;
+  }
+  .checkbox-row input[type=checkbox] { margin-top:2px; flex-shrink:0; accent-color:var(--blue); }
+  .checkbox-row label { font-size:12px; color:var(--text2); line-height:1.5; cursor:pointer; }
+  .checkbox-row label a { color:var(--blue-lit); }
+</style>
+
+<div class="auth-bg">
+  <!-- Topbar -->
+  <div class="auth-topbar">
+    <a class="logo" href="index.html">Urban<span>Bet</span></a>
+    <a href="index.html" style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--text2)">
+      <i class="pi pi-arrow-left"></i> Back to lobby
+    </a>
+  </div>
+
+  <div class="auth-body">
+    <div class="auth-card">
+      <div class="auth-card-top">
+        <span class="logo" style="text-align:center">Urban<span>Bet</span></span>
+        <p class="auth-card-tagline">Kenya's #1 Gaming Hub</p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="auth-tabs-bar">
+        <div class="a-tab active" id="tabLogin" onclick="switchTab('login')">Login</div>
+        <div class="a-tab" id="tabRegister" onclick="switchTab('register')">Register</div>
+      </div>
+
+      <div class="auth-panels">
+
+        <!-- ── LOGIN PANEL ── -->
+        <div class="auth-panel active" id="panelLogin">
+
+          <div class="form-alert" id="loginAlert"></div>
+
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <div class="phone-row">
+              <div class="phone-prefix">🇰🇪 +254</div>
+              <input class="form-input" type="tel" id="loginPhone" placeholder="7XX XXX XXX" maxlength="9"/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <div class="form-input-wrap">
+              <input class="form-input" type="password" id="loginPass" placeholder="Enter password"/>
+              <button class="form-eye" onclick="togglePwd('loginPass',this)"><i class="pi pi-eye"></i></button>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end">
+            <a href="#" style="font-size:12px;color:var(--blue-lit);font-weight:600" onclick="showToast('Password reset via SMS coming soon!')">Forgot password?</a>
+          </div>
+
+          <button class="btn-form-submit" id="btnLoginSubmit" onclick="doLogin()">
+            <div class="spinner"></div>
+            <span class="btn-label">Login to UrbanBet</span>
+          </button>
+
+          <div class="form-divider">or continue with</div>
+
+          <div class="social-logins">
+            <button class="btn-social" onclick="showToast('Google login coming soon!')">
+              <span class="soc-icon">🇬</span> Continue with Google
+            </button>
+          </div>
+
+          <p class="form-footer">Don't have an account? <a href="#" onclick="switchTab('register')">Register free</a></p>
+        </div>
+
+        <!-- ── REGISTER PANEL ── -->
+        <div class="auth-panel" id="panelRegister">
+
+          <div class="form-alert" id="registerAlert"></div>
+
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" type="text" id="regName" placeholder="e.g. Kamau Njoroge"/>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <div class="phone-row">
+              <div class="phone-prefix">🇰🇪 +254</div>
+              <input class="form-input" type="tel" id="regPhone" placeholder="7XX XXX XXX" maxlength="9"/>
+            </div>
+            <div class="form-hint">You'll use this to login. M-Pesa deposits enabled.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email (optional)</label>
+            <input class="form-input" type="email" id="regEmail" placeholder="your@email.com"/>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <div class="form-input-wrap">
+              <input class="form-input" type="password" id="regPass" placeholder="Min. 6 characters" oninput="checkStrength(this.value)"/>
+              <button class="form-eye" onclick="togglePwd('regPass',this)"><i class="pi pi-eye"></i></button>
+            </div>
+            <div class="strength-bar" id="strengthBar">
+              <div class="str-seg" id="s1"></div>
+              <div class="str-seg" id="s2"></div>
+              <div class="str-seg" id="s3"></div>
+              <div class="str-seg" id="s4"></div>
+            </div>
+            <div class="strength-label" id="strengthLabel" style="color:var(--muted)"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Referral Code (optional)</label>
+            <input class="form-input" type="text" id="regRef" placeholder="e.g. URBAN100"/>
+          </div>
+
+          <div class="checkbox-row">
+            <input type="checkbox" id="agreeTerms"/>
+            <label for="agreeTerms">I am 18+ years old and agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></label>
+          </div>
+
+          <button class="btn-form-submit green" id="btnRegisterSubmit" onclick="doRegister()">
+            <div class="spinner"></div>
+            <span class="btn-label">Create Free Account</span>
+          </button>
+
+          <p class="form-footer">Already have an account? <a href="#" onclick="switchTab('login')">Login here</a></p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="main.js"></script>
+<script>
+  // Point to your live Render backend
+  const API_BASE_URL = "https://bet-6jn6.onrender.com";
+
+  // Read URL param
+  const params = new URLSearchParams(location.search);
+  if(params.get('mode')==='register') switchTab('register');
+
+  // Redirect if already logged in (checking the session token)
+  try {
+    const session = JSON.parse(localStorage.getItem('ub_session'));
+    if(session && session.user) window.location.href='index.html';
+  } catch(e) {}
+
+  function switchTab(tab){
+    document.getElementById('tabLogin').classList.toggle('active', tab==='login');
+    document.getElementById('tabRegister').classList.toggle('active', tab==='register');
+    document.getElementById('panelLogin').classList.toggle('active', tab==='login');
+    document.getElementById('panelRegister').classList.toggle('active', tab==='register');
+  }
+
+  function togglePwd(id, btn){
+    const inp = document.getElementById(id);
+    const icon = btn.querySelector('i');
+    if(inp.type==='password'){
+      inp.type='text'; icon.className='pi pi-eye-slash';
+    } else {
+      inp.type='password'; icon.className='pi pi-eye';
+    }
+  }
+
+  function showAlert(id, msg, type='error'){
+    const el = document.getElementById(id);
+    el.textContent = msg; 
+    el.className = 'form-alert show ' + type;
+    el.style.display = 'flex'; // Ensure it's visible
+  }
+  
+  function clearAlert(id){ 
+      const el = document.getElementById(id);
+      el.className='form-alert'; 
+      el.style.display = 'none';
+  }
+
+  function setLoading(id, on){
+    const btn = document.getElementById(id);
+    btn.classList.toggle('loading', on);
+    btn.disabled = on;
+  }
+
+  function checkStrength(val){
+    const segs = ['s1','s2','s3','s4'];
+    const lbl  = document.getElementById('strengthLabel');
+    let score  = 0;
+    if(val.length>=6) score++;
+    if(val.length>=10) score++;
+    if(/[A-Z]/.test(val)) score++;
+    if(/[0-9!@#$%]/.test(val)) score++;
+
+    const colours=['#ef4444','#f59e0b','#22c55e','#16a34a'];
+    const labels =['Too short','Fair','Good','Strong'];
+    segs.forEach((id,i)=>{
+      document.getElementById(id).style.background = i<score ? colours[score-1] : 'var(--surface3)';
+    });
+    lbl.textContent = val.length ? labels[Math.min(score,4)-1]||'' : '';
+    lbl.style.color = score>0 ? colours[score-1] : 'var(--muted)';
+  }
+
+  // --- LIVE BACKEND LOGIN ---
+  async function doLogin(){
+    clearAlert('loginAlert');
+    const phoneRaw = document.getElementById('loginPhone').value.trim();
+    const pass  = document.getElementById('loginPass').value;
+    
+    if(!phoneRaw || phoneRaw.length < 9) return showAlert('loginAlert','Enter a valid phone number.');
+    if(!pass) return showAlert('loginAlert','Enter your password.');
+
+    // Format phone to match backend structure
+    let formattedPhone = phoneRaw.replace(/[\s\-]/g,'');
+    if(formattedPhone.startsWith('0')) formattedPhone = '254' + formattedPhone.substring(1);
+    else if(!formattedPhone.startsWith('254') && !formattedPhone.startsWith('+')) formattedPhone = '254' + formattedPhone;
+
+    setLoading('btnLoginSubmit', true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: formattedPhone, password: pass })
+      });
+      const data = await response.json();
+
+      setLoading('btnLoginSubmit', false);
+
+      if (response.ok) {
+        // Save live session to localStorage
+        localStorage.setItem('ub_session', JSON.stringify({ token: data.token, user: data.user }));
+        if(typeof showToast === 'function') showToast('Welcome back! 👋','success');
+        setTimeout(()=>{ window.location.href='index.html'; }, 700);
+      } else {
+        showAlert('loginAlert', data.error || 'Invalid credentials.');
+      }
+    } catch (err) {
+      setLoading('btnLoginSubmit', false);
+      showAlert('loginAlert', 'Network error. Please try again.');
+    }
+  }
+
+  // --- LIVE BACKEND REGISTER ---
+  async function doRegister(){
+    clearAlert('registerAlert');
+    const name  = document.getElementById('regName').value.trim();
+    const phoneRaw = document.getElementById('regPhone').value.trim();
+    const pass  = document.getElementById('regPass').value;
+    const agree = document.getElementById('agreeTerms').checked;
+
+    if(!name) return showAlert('registerAlert','Please enter your username.');
+    if(!phoneRaw || phoneRaw.length < 9) return showAlert('registerAlert','Enter a valid phone number.');
+    if(!pass || pass.length < 6) return showAlert('registerAlert','Password must be at least 6 characters.');
+    if(!agree) return showAlert('registerAlert','You must agree to the Terms of Service.');
+
+    // Format phone to match backend structure
+    let formattedPhone = phoneRaw.replace(/[\s\-]/g,'');
+    if(formattedPhone.startsWith('0')) formattedPhone = '254' + formattedPhone.substring(1);
+    else if(!formattedPhone.startsWith('254') && !formattedPhone.startsWith('+')) formattedPhone = '254' + formattedPhone;
+
+    setLoading('btnRegisterSubmit', true);
+
+    try {
+      // 1. Create the account
+      const response = await fetch(`${API_BASE_URL}/api/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: name, phone: formattedPhone, password: pass })
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        // 2. Auto-login immediately after successful registration
+        const loginRes = await fetch(`${API_BASE_URL}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: formattedPhone, password: pass })
+        });
+        const loginData = await loginRes.json();
+        
+        setLoading('btnRegisterSubmit', false);
+
+        if(loginRes.ok) {
+            localStorage.setItem('ub_session', JSON.stringify({ token: loginData.token, user: loginData.user }));
+            if(typeof showToast === 'function') showToast('Account created! Welcome 🎉', 'success');
+            setTimeout(()=>{ window.location.href='index.html'; }, 700);
+        } else {
+            switchTab('login');
+        }
+      } else {
+        setLoading('btnRegisterSubmit', false);
+        showAlert('registerAlert', data.error || 'Registration failed.');
+      }
+    } catch (err) {
+      setLoading('btnRegisterSubmit', false);
+      showAlert('registerAlert', 'Network error. Please try again.');
+    }
+  }
+
+  // Enter key support
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){
+      if(document.getElementById('panelLogin').classList.contains('active')) doLogin();
+      else doRegister();
+    }
+  });
+</script>
+</body>
+</html>

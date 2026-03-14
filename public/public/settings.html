@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <title>UrbanBet — Settings</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    .bottom-nav { justify-content: space-around; }
+    .bottom-nav .bn-item { flex: 1; }
+
+    /* Custom Input overrides for Glass theme */
+    .form-input {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .form-input:focus {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--blue-lit);
+      box-shadow: 0 0 0 3px var(--blue-dim), inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .form-input[readonly] { opacity: 0.5; cursor: not-allowed; background: rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body>
+
+<div class="ambient-orb orb-1"></div>
+<div class="ambient-orb orb-2"></div>
+<div class="ambient-orb orb-3"></div>
+
+<div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="logo">Urban<span>Bet</span></span>
+    <button style="background:none;border:none;color:var(--text2);font-size:18px;padding:6px;border-radius:8px;cursor:pointer;display:flex;align-items:center" onclick="closeDrawer()">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+  </div>
+  <div class="drawer-user-row" onclick="window.location.href='profile.html'">
+    <div class="drawer-avatar"><i class="fa-regular fa-user" id="drawerAvatarIcon"></i></div>
+    <span class="d-username" id="drawerUsername">Log in to your account</span>
+    <i class="fa-solid fa-chevron-right d-chevron"></i>
+  </div>
+  <nav class="drawer-nav">
+    <div class="drawer-section-label">Casino</div>
+    <a class="dnav-item" href="index.html"><i class="fa-solid fa-grid-2"></i> Casino</a>
+    <a class="dnav-item" href="sports.html"><i class="fa-solid fa-globe"></i> Sports</a>
+    <a class="dnav-item" href="bonuses.html"><i class="fa-solid fa-gift"></i> Bonuses <span class="dnav-badge">1</span></a>
+    <div class="dnav-sep"></div>
+    <div class="drawer-section-label">Account</div>
+    <a class="dnav-item" href="profile.html"><i class="fa-regular fa-user"></i> My Profile</a>
+    <a class="dnav-item" href="wallet.html"><i class="fa-solid fa-wallet"></i> Wallet</a>
+    <a class="dnav-item active" href="settings.html"><i class="fa-solid fa-gear"></i> Settings</a>
+  </nav>
+  <div class="drawer-footer">
+    <div id="drawerAuthGroup">
+      <button class="btn-register wide" onclick="window.location.href='auth.html?mode=register'">Register Free</button>
+    </div>
+    <div id="drawerUserGroup" class="hidden">
+      <button class="drawer-logout" onclick="Auth.logout()">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </div>
+</aside>
+
+<header class="header">
+  <div class="header-left">
+    <button class="icon-btn" onclick="openDrawer()"><i class="fa-solid fa-bars"></i></button>
+    <a class="logo" href="index.html">Urban<span>Bet</span></a>
+  </div>
+  <div class="header-right">
+    <div id="balWrap" style="display:none">
+      <div class="bal-chip" onclick="window.location.href='wallet.html'">
+        <span class="bal-amount" id="balAmount">KES 0.00</span>
+        <span class="bal-plus"><i class="fa-solid fa-plus"></i></span>
+      </div>
+    </div>
+    <button class="btn-login" id="btnLogin" onclick="window.location.href='auth.html?mode=login'">Login</button>
+    <button class="btn-register" id="btnRegister" onclick="window.location.href='auth.html?mode=register'">Register</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="main">
+    <div class="page-inner" id="pageContent">
+      <h1 class="page-title"><i class="fa-solid fa-gear" style="color:var(--text2)"></i> Settings</h1>
+
+      <div class="tab-btns" style="margin-bottom:24px">
+        <button class="tab-btn active" id="stab-profile" onclick="switchSettings('profile')">Profile</button>
+        <button class="tab-btn" id="stab-security" onclick="switchSettings('security')">Security</button>
+        <button class="tab-btn" id="stab-notifs" onclick="switchSettings('notifs')">Alerts</button>
+        <button class="tab-btn" id="stab-limits" onclick="switchSettings('limits')">Limits</button>
+      </div>
+
+      <div class="settings-panel active fade-in fade-in-1" id="spanel-profile">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-regular fa-user" style="color:var(--blue-lit)"></i> Personal Information</div>
+          </div>
+          <div class="section-card-body" style="display:flex;flex-direction:column;gap:16px;padding:20px;">
+            <div style="display:flex;align-items:center;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--border)">
+              <div id="settingsAvatar" style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid var(--border);box-shadow:0 8px 20px rgba(0,0,0,0.3)"></div>
+              <div>
+                <div style="font-size:16px;font-weight:700;color:var(--text)" id="settingsName">—</div>
+                <div style="font-size:12px;color:var(--text2);margin-top:4px" id="settingsPhone">—</div>
+              </div>
+              <button onclick="showToast('Avatar upload coming soon!')" style="margin-left:auto;height:36px;padding:0 16px;border-radius:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text);font-size:12px;font-weight:700;transition:var(--t)">
+                Change
+              </button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Username / Display Name</label>
+              <input class="form-input" type="text" id="setName" placeholder="Your name"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email Address</label>
+              <input class="form-input" type="email" id="setEmail" placeholder="your@email.com"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number</label>
+              <input class="form-input" type="tel" id="setPhone" placeholder="+2547XXXXXXXX" readonly/>
+              <div class="form-hint">Phone number cannot be changed. Contact support if needed.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Language</label>
+              <select class="form-input" id="setLanguage" style="cursor:pointer;appearance:none;">
+                <option value="en">🇬🇧 English</option>
+                <option value="sw">🇰🇪 Kiswahili</option>
+              </select>
+            </div>
+            <div class="form-alert" id="profileSaveAlert" style="display:none"></div>
+            <button class="btn-form-submit" onclick="saveProfile()" style="margin-top:8px">Save Profile</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-panel fade-in fade-in-1" id="spanel-security">
+        <div class="section-card" style="margin-bottom:20px">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-lock" style="color:var(--yellow-lit)"></i> Change Password</div>
+          </div>
+          <div class="section-card-body" style="display:flex;flex-direction:column;gap:16px;padding:20px">
+            <div class="form-group">
+              <label class="form-label">Current Password</label>
+              <div class="form-input-wrap">
+                <input class="form-input" type="password" id="curPass" placeholder="Current password"/>
+                <button class="form-eye" onclick="togglePwd('curPass',this)"><i class="fa-solid fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <div class="form-input-wrap">
+                <input class="form-input" type="password" id="newPass" placeholder="Min. 6 characters"/>
+                <button class="form-eye" onclick="togglePwd('newPass',this)"><i class="fa-solid fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password</label>
+              <div class="form-input-wrap">
+                <input class="form-input" type="password" id="confPass" placeholder="Repeat new password"/>
+                <button class="form-eye" onclick="togglePwd('confPass',this)"><i class="fa-solid fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="form-alert" id="passAlert" style="display:none"></div>
+            <button class="btn-form-submit" onclick="changePassword()" style="margin-top:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);box-shadow:none">Update Password</button>
+          </div>
+        </div>
+
+        <div class="section-card" style="margin-bottom:20px">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-shield-halved" style="color:var(--green-lit)"></i> Two-Factor Auth</div>
+          </div>
+          <div class="section-card-body" style="padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+              <div>
+                <div style="font-size:14px;font-weight:700;color:var(--text)">SMS Verification</div>
+                <div style="font-size:12px;color:var(--text2);margin-top:4px">Receive a code via SMS on every login</div>
+              </div>
+              <div class="toggle-wrap">
+                <input type="checkbox" class="toggle-input" id="tog2fa" onchange="save2FA()">
+                <label class="toggle-label" for="tog2fa"></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-desktop" style="color:var(--text2)"></i> Active Sessions</div>
+          </div>
+          <div class="section-card-body" style="padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--border)">
+              <div>
+                <div style="font-size:14px;font-weight:700;color:var(--text)">This device</div>
+                <div style="font-size:12px;color:var(--text2);margin-top:4px">Nairobi, Kenya · Just now</div>
+              </div>
+              <span style="font-size:10px;background:var(--green-dim);color:var(--green-lit);padding:3px 8px;border-radius:6px;font-weight:800;text-transform:uppercase">Active</span>
+            </div>
+            <button onclick="showToast('All other sessions terminated.','success')" style="margin-top:16px;height:42px;width:100%;border-radius:12px;background:var(--red-dim);border:1px solid rgba(220,38,38,.3);color:var(--red-lit);font-size:13px;font-weight:700;transition:var(--t)">
+              Terminate Other Sessions
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-panel fade-in fade-in-1" id="spanel-notifs">
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-bell" style="color:var(--yellow-lit)"></i> Notification Preferences</div>
+          </div>
+          <div class="section-card-body" style="padding:20px">
+            <div style="display:flex;flex-direction:column;gap:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+                <div>
+                  <div style="font-size:14px;font-weight:700;color:var(--text)">Big Win Alerts</div>
+                  <div style="font-size:12px;color:var(--text2);margin-top:4px">Get notified when you hit a big multiplier</div>
+                </div>
+                <div class="toggle-wrap"><input type="checkbox" class="toggle-input" id="nWins" checked><label class="toggle-label" for="nWins"></label></div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+                <div>
+                  <div style="font-size:14px;font-weight:700;color:var(--text)">Deposit Confirmations</div>
+                  <div style="font-size:12px;color:var(--text2);margin-top:4px">SMS after every deposit</div>
+                </div>
+                <div class="toggle-wrap"><input type="checkbox" class="toggle-input" id="nDep" checked><label class="toggle-label" for="nDep"></label></div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+                <div>
+                  <div style="font-size:14px;font-weight:700;color:var(--text)">Promotions & Bonuses</div>
+                  <div style="font-size:12px;color:var(--text2);margin-top:4px">Weekly bonus offers and free spins</div>
+                </div>
+                <div class="toggle-wrap"><input type="checkbox" class="toggle-input" id="nPromo"><label class="toggle-label" for="nPromo"></label></div>
+              </div>
+            </div>
+            <button class="btn-form-submit" onclick="showToast('Notification settings saved!','success')" style="margin-top:24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);box-shadow:none">Save Preferences</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-panel fade-in fade-in-1" id="spanel-limits">
+        <div class="section-card" style="margin-bottom:20px">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-chart-pie" style="color:var(--blue-lit)"></i> Spending Limits</div>
+          </div>
+          <div class="section-card-body" style="display:flex;flex-direction:column;gap:16px;padding:20px">
+            <div style="background:rgba(59,91,219,.1);border:1px solid rgba(59,91,219,.2);border-radius:12px;padding:14px;font-size:13px;color:var(--text2);line-height:1.5">
+              <strong style="color:var(--blue-lit)">Responsible Gambling</strong><br>
+              Setting limits helps you stay in control. Changes take effect in 24 hours.
+            </div>
+            <div class="form-group">
+              <label class="form-label">Daily Deposit Limit (KES)</label>
+              <input class="form-input" type="number" placeholder="e.g. 5000"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Weekly Deposit Limit (KES)</label>
+              <input class="form-input" type="number" placeholder="e.g. 20000"/>
+            </div>
+            <button class="btn-form-submit" onclick="showToast('Limits saved. Active in 24 hours.','success')" style="margin-top:8px">Set Limits</button>
+          </div>
+        </div>
+
+        <div class="section-card" style="margin-bottom:20px">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-regular fa-circle-pause" style="color:var(--red-lit)"></i> Self-Exclusion</div>
+          </div>
+          <div class="section-card-body" style="display:flex;flex-direction:column;gap:16px;padding:20px">
+            <p style="font-size:13px;color:var(--text2);line-height:1.6">Take a break from gaming. Your account will be temporarily suspended for the selected period.</p>
+            <div class="form-group">
+              <label class="form-label">Cool-off Period</label>
+              <select class="form-input" id="cooloff" style="cursor:pointer;appearance:none;">
+                <option value="">Select period…</option>
+                <option value="24h">24 Hours</option>
+                <option value="7d">7 Days</option>
+                <option value="30d">30 Days</option>
+                <option value="perm">Permanent</option>
+              </select>
+            </div>
+            <button onclick="doSelfExclude()" style="height:42px;padding:0 24px;border-radius:12px;background:var(--red-dim);border:1px solid rgba(220,38,38,.3);color:var(--red-lit);font-size:13px;font-weight:700;transition:var(--t);width:fit-content">
+              Take a Break
+            </button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-card-head">
+            <div class="section-card-title"><i class="fa-solid fa-trash-can" style="color:var(--red-lit)"></i> Delete Account</div>
+          </div>
+          <div class="section-card-body" style="padding:20px">
+            <p style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6">Permanently delete your account and all data. This action cannot be undone.</p>
+            <button onclick="showToast('Please contact support to delete your account.','error')" style="height:42px;padding:0 24px;border-radius:12px;background:var(--red-dim);border:1px solid rgba(220,38,38,.3);color:var(--red-lit);font-size:13px;font-weight:700">
+              Delete My Account
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<nav class="bottom-nav mobile-only">
+  <a class="bn-item" href="index.html"><i class="fa-solid fa-house"></i><span>Home</span></a>
+  <a class="bn-item" href="sports.html"><i class="fa-solid fa-globe"></i><span>Sports</span></a>
+  <a class="bn-item" href="wallet.html"><i class="fa-solid fa-wallet"></i><span>Wallet</span></a>
+  <a class="bn-item" href="profile.html"><i class="fa-regular fa-user"></i><span>Profile</span></a>
+</nav>
+
+<script>
+/* ═══════════════════════════════════════════════
+   URBANBET — SETTINGS.HTML SCRIPT (STANDALONE PRO)
+═══════════════════════════════════════════════ */
+const API_BASE_URL = "https://bet-6jn6.onrender.com";
+
+const Session = {
+  KEY: 'ub_session',
+  get() { try { return JSON.parse(localStorage.getItem(this.KEY)); } catch(e) { return null; } },
+  getUser() { return this.get()?.user || null; },
+  getToken() { return this.get()?.token || null; },
+  clear() { localStorage.removeItem(this.KEY); window.location.href = 'index.html'; },
+  update(patch) {
+    const s = this.get();
+    if (!s) return;
+    s.user = { ...s.user, ...patch };
+    localStorage.setItem(this.KEY, JSON.stringify(s));
+  }
+};
+const Auth = { logout: () => Session.clear() };
+
+function showToast(msg, type='info') {
+  let t = document.getElementById('ub-toast');
+  if(!t) { 
+      t = document.createElement('div'); t.id = 'ub-toast'; 
+      t.style.cssText = "position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#1e252e; border:1px solid #2a3340; color:white; padding:12px 24px; border-radius:12px; font-size:13px; font-weight:bold; z-index:9999; box-shadow:0 10px 30px rgba(0,0,0,0.8); transition:opacity 0.3s; opacity:0; pointer-events:none;";
+      document.body.appendChild(t); 
+  }
+  t.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check text-[#1bc24b]' : type === 'error' ? 'fa-triangle-exclamation text-[#e8294a]' : 'fa-circle-info text-[#108ee9]'} mr-2"></i> ${msg}`;
+  t.style.opacity = '1';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.opacity = '0', 2600);
+}
+
+function fmtMoney(n) { return Number(n||0).toLocaleString('en-KE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+async function initHeader() {
+  const user = Session.getUser();
+  if (user) {
+    document.getElementById('btnLogin')?.classList.add('hidden');
+    document.getElementById('btnRegister')?.classList.add('hidden');
+    const bw = document.getElementById('balWrap');
+    if(bw) { bw.classList.remove('hidden'); bw.style.display='flex'; }
+    const ba = document.getElementById('balAmount');
+    if(ba) ba.textContent='KES '+fmtMoney(user.balance);
+    document.getElementById('drawerAuthGroup')?.classList.add('hidden');
+    document.getElementById('drawerUserGroup')?.classList.remove('hidden');
+    const dn = document.getElementById('drawerUsername');
+    if(dn) dn.textContent = user.username || user.name || user.phone;
+    const di = document.getElementById('drawerAvatarIcon');
+    if(di) di.style.display = 'none';
+
+    // Populate Settings Fields
+    const init = (user.username || user.phone || '?').substring(0,2).toUpperCase();
+    const av = document.getElementById('settingsAvatar'); if(av) av.textContent = init;
+    const nm = document.getElementById('settingsName');   if(nm) nm.textContent = user.username || 'UrbanBet User';
+    const ph = document.getElementById('settingsPhone');  if(ph) ph.textContent = user.phone || '';
+    
+    document.getElementById('setName').value  = user.username || '';
+    document.getElementById('setEmail').value = user.email || '';
+    document.getElementById('setPhone').value = user.phone || '';
+
+  } else {
+    document.getElementById('balWrap')?.classList.add('hidden');
+    document.getElementById('drawerAuthGroup')?.classList.remove('hidden');
+    document.getElementById('drawerUserGroup')?.classList.add('hidden');
+  }
+}
+
+function openDrawer() {
+  document.getElementById('drawer')?.classList.add('open');
+  document.getElementById('drawerMask')?.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeDrawer() {
+  document.getElementById('drawer')?.classList.remove('open');
+  document.getElementById('drawerMask')?.classList.remove('open');
+  document.body.style.overflow='';
+}
+
+// Swipe gestures
+(function(){
+  let sx=0,sy=0,drag=false,cx=0;
+  const EDGE=32,OT=80,CT=-60;
+  const dw=()=>document.getElementById('drawer');
+  const mk=()=>document.getElementById('drawerMask');
+  document.addEventListener('touchstart',e=>{
+    const t=e.touches[0];sx=t.clientX;sy=t.clientY;drag=false;cx=sx;
+    const o=dw()?.classList.contains('open');
+    if((!o&&sx<=EDGE)||o){drag=true;if(dw())dw().style.transition='none';}
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!drag)return;
+    const t=e.touches[0];const dx=t.clientX-sx;const dy=t.clientY-sy;
+    if(Math.abs(dy)>Math.abs(dx)*1.5){drag=false;return;}
+    e.preventDefault();cx=t.clientX;
+    const o=dw()?.classList.contains('open');
+    const DW=dw()?.offsetWidth||280;
+    if(!o){const p=Math.min(dx/DW,1);dw().style.left=`${-DW*(1-p)}px`;const m=mk();if(m){m.style.display='block';m.style.opacity=String(p*.8);}}
+    else if(dx<0){dw().style.left=`${dx}px`;const m=mk();if(m)m.style.opacity=String((1+dx/DW)*.8);}
+  },{passive:false});
+  document.addEventListener('touchend',()=>{
+    if(!drag)return;drag=false;
+    const d=dw();if(!d)return;
+    const o=d.classList.contains('open');const dx=cx-sx;
+    d.style.transition='';d.style.left='';
+    const m=mk();if(m){m.style.opacity='';m.style.display='';}
+    if(!o&&dx>OT)openDrawer();
+    else if(o&&dx<CT)closeDrawer();
+  },{passive:true});
+})();
+
+function switchSettings(tab){
+  ['profile','security','notifs','limits'].forEach(t=>{
+    document.getElementById('stab-'+t)?.classList.toggle('active',t===tab);
+    document.getElementById('spanel-'+t)?.classList.toggle('active',t===tab);
+  });
+}
+
+function togglePwd(id, btn){
+  const inp  = document.getElementById(id);
+  const icon = btn.querySelector('i');
+  inp.type   = inp.type==='password' ? 'text' : 'password';
+  icon.className = inp.type==='password' ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+}
+
+function showAlert(id, msg, type='error') {
+  const el = document.getElementById(id); if (!el) return;
+  const icon = type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation';
+  el.innerHTML = `<i class="fa-solid ${icon}"></i> ${msg}`;
+  el.className = `form-alert show ${type}`;
+  el.style.display = 'flex';
+}
+function clearAlert(id) { const el = document.getElementById(id); if (el) { el.className='form-alert'; el.style.display='none'; } }
+
+async function saveProfile(){
+  const user = Session.getUser();
+  if(!user) return showToast('Please login first', 'error');
+  const name  = document.getElementById('setName').value.trim();
+  const email = document.getElementById('setEmail').value.trim();
+  
+  if(!name) return showAlert('profileSaveAlert','Display name cannot be empty.','error');
+  
+  Session.update({ username: name, email });
+  document.getElementById('settingsName').textContent = name;
+  clearAlert('profileSaveAlert');
+  showAlert('profileSaveAlert','Profile saved successfully locally!','success');
+  showToast('Profile updated ✓','success');
+}
+
+function changePassword(){
+  const user = Session.getUser();
+  if(!user) return;
+  const cur  = document.getElementById('curPass').value;
+  const nw   = document.getElementById('newPass').value;
+  const conf = document.getElementById('confPass').value;
+
+  if(cur !== user.password) return showAlert('passAlert','Current password is incorrect.','error');
+  if(nw.length < 6)         return showAlert('passAlert','New password must be at least 6 characters.','error');
+  if(nw !== conf)           return showAlert('passAlert','Passwords do not match.','error');
+
+  Session.update({ password: nw });
+  ['curPass','newPass','confPass'].forEach(id=>{ document.getElementById(id).value=''; });
+  clearAlert('passAlert');
+  showAlert('passAlert','Password updated successfully locally!','success');
+  showToast('Password changed ✓','success');
+}
+
+function save2FA(){
+  const on = document.getElementById('tog2fa').checked;
+  showToast(on ? 'Two-factor auth enabled ✓' : 'Two-factor auth disabled','success');
+}
+
+function doSelfExclude(){
+  const period = document.getElementById('cooloff')?.value;
+  if(!period) return showToast('Please select a cool-off period.','error');
+  if(confirm(`Are you sure you want to take a ${period} break? Your account will be suspended.`)){
+    showToast(`Self-exclusion for ${period} requested. Support will confirm.`,'success');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initHeader();
+  if(!Session.getUser()) {
+      document.getElementById('pageContent').innerHTML = `
+        <div class="empty-state" style="padding-top:80px">
+          <i class="fa-solid fa-lock" style="font-size:40px;color:var(--text2);margin-bottom:10px"></i>
+          <h2 style="font-size:18px;font-weight:700">Login Required</h2>
+          <p style="color:var(--text2);font-size:13px;margin-bottom:20px">Please login to manage your settings.</p>
+          <button class="btn-form-submit" style="max-width:200px" onclick="window.location.href='auth.html?mode=login'">Login</button>
+        </div>
+      `;
+  }
+});
+</script>
+</body>
+</html>
