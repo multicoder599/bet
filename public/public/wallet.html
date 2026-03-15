@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>UrbanBet — Wallet</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    /* 4-item bottom nav override for this page */
+    .bottom-nav { justify-content: space-around; }
+    .bottom-nav .bn-item { flex: 1; }
+  </style>
+</head>
+<body>
+
+<div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="logo">Urban<span>Bet</span></span>
+    <button style="background:none;border:none;color:var(--text2);font-size:18px;padding:6px;border-radius:8px;cursor:pointer;display:flex;align-items:center" onclick="closeDrawer()">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+  </div>
+  <div class="drawer-user-row" onclick="window.location.href='profile.html'">
+    <div class="drawer-avatar"><i class="fa-regular fa-user" id="drawerAvatarIcon"></i></div>
+    <span class="d-username" id="drawerUsername">Log in to your account</span>
+    <i class="fa-solid fa-chevron-right d-chevron"></i>
+  </div>
+  <nav class="drawer-nav">
+    <div class="drawer-section-label">Casino</div>
+    <a class="dnav-item" href="index.html"><i class="fa-solid fa-grid-2"></i> Casino</a>
+    <a class="dnav-item" href="sports.html"><i class="fa-solid fa-globe"></i> Sports</a>
+    <a class="dnav-item" href="bonuses.html"><i class="fa-solid fa-gift"></i> Bonuses <span class="dnav-badge">1</span></a>
+    <div class="dnav-sep"></div>
+    <div class="drawer-section-label">Account</div>
+    <a class="dnav-item" href="profile.html"><i class="fa-regular fa-user"></i> My Profile</a>
+    <a class="dnav-item active" href="wallet.html"><i class="fa-solid fa-wallet"></i> Wallet</a>
+    <a class="dnav-item" href="settings.html"><i class="fa-solid fa-gear"></i> Settings</a>
+  </nav>
+  <div class="drawer-footer">
+    <div id="drawerAuthGroup">
+      <button class="btn-register wide" onclick="window.location.href='auth.html?mode=register'">Register Free</button>
+    </div>
+    <div id="drawerUserGroup" class="hidden">
+      <button class="drawer-logout" onclick="Auth.logout()">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </div>
+</aside>
+
+<header class="header">
+  <div class="header-left">
+    <button class="icon-btn" onclick="openDrawer()"><i class="fa-solid fa-bars"></i></button>
+    <a class="logo" href="index.html">Urban<span>Bet</span></a>
+  </div>
+  <div class="header-right">
+    <div id="balWrap" style="display:none">
+      <div class="bal-chip" onclick="location.reload()">
+        <span class="bal-amount" id="balAmount">KES 0.00</span>
+        <span class="bal-plus"><i class="fa-solid fa-rotate-right"></i></span>
+      </div>
+    </div>
+    <button class="btn-login" id="btnLogin" onclick="window.location.href='auth.html?mode=login'">Login</button>
+    <button class="btn-register" id="btnRegister" onclick="window.location.href='auth.html?mode=register'">Register</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="main">
+    <div class="page-inner" id="pageContent"></div>
+  </div>
+</div>
+
+<nav class="bottom-nav mobile-only">
+  <a class="bn-item" href="index.html">
+    <i class="fa-solid fa-house"></i><span>Home</span>
+  </a>
+  <a class="bn-item" href="sports.html">
+    <i class="fa-solid fa-globe"></i><span>Sports</span>
+  </a>
+  <a class="bn-item active" href="wallet.html">
+    <i class="fa-solid fa-wallet"></i><span>Wallet</span>
+  </a>
+  <a class="bn-item" href="profile.html">
+    <i class="fa-regular fa-user"></i><span>Profile</span>
+  </a>
+</nav>
+
+<script>
+/* ═══════════════════════════════════════════════
+   URBANBET — WALLET.HTML SCRIPT (STANDALONE PRO)
+   Live Backend Connected 
+═══════════════════════════════════════════════ */
+const API_BASE_URL = "https://bet-6jn6.onrender.com";
+
+/* ═════════════════════════
+   1. CORE UTILITIES & AUTH
+═════════════════════════ */
+const Session = {
+  KEY: 'ub_session',
+  get() { try { return JSON.parse(localStorage.getItem(this.KEY)); } catch(e) { return null; } },
+  getUser() { return this.get()?.user || null; },
+  getToken() { return this.get()?.token || null; },
+  clear() { localStorage.removeItem(this.KEY); window.location.href = 'index.html'; },
+  update(patch) {
+    const s = this.get();
+    if (!s) return;
+    s.user = { ...s.user, ...patch };
+    localStorage.setItem(this.KEY, JSON.stringify(s));
+  }
+};
+
+const Auth = { logout: () => Session.clear() };
+
+async function apiFetch(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  const token = Session.getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return fetch(API_BASE_URL + path, { ...options, headers });
+}
+
+function showToast(msg, type='info') {
+  let t = document.getElementById('ub-toast');
+  if(!t) { 
+      t = document.createElement('div'); 
+      t.id = 'ub-toast'; 
+      t.style.cssText = "position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#1e252e; border:1px solid #2a3340; color:white; padding:12px 24px; border-radius:8px; font-size:13px; font-weight:bold; z-index:9999; box-shadow:0 10px 30px rgba(0,0,0,0.8); transition:opacity 0.3s; opacity:0; pointer-events:none;";
+      document.body.appendChild(t); 
+  }
+  t.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check text-[#1bc24b]' : type === 'error' ? 'fa-triangle-exclamation text-[#e8294a]' : 'fa-circle-info text-[#108ee9]'} mr-2"></i> ${msg}`;
+  t.style.opacity = '1';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.opacity = '0', 2600);
+}
+
+function fmtMoney(n) { return Number(n||0).toLocaleString('en-KE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'}) : ''; }
+
+/* ═════════════════════════
+   2. HEADER & DRAWER LOGIC
+═════════════════════════ */
+async function initHeader() {
+  const user = Session.getUser();
+  const loginBtn    = document.getElementById('btnLogin');
+  const registerBtn = document.getElementById('btnRegister');
+  const balWrap     = document.getElementById('balWrap');
+  const balAmount   = document.getElementById('balAmount');
+  const drawerAuth  = document.getElementById('drawerAuthGroup');
+  const drawerUser  = document.getElementById('drawerUserGroup');
+  const drawerName  = document.getElementById('drawerUsername');
+  const drawerAvIcon= document.getElementById('drawerAvatarIcon');
+
+  if (user) {
+    if(loginBtn) loginBtn.classList.add('hidden');
+    if(registerBtn) registerBtn.classList.add('hidden');
+    if(balWrap) { balWrap.classList.remove('hidden'); balWrap.style.display='flex'; }
+    if(balAmount) balAmount.textContent='KES '+fmtMoney(user.balance);
+    if(drawerAuth) drawerAuth.classList.add('hidden');
+    if(drawerUser) drawerUser.classList.remove('hidden');
+    if(drawerName) drawerName.textContent = user.username || user.name || user.phone;
+    if(drawerAvIcon) drawerAvIcon.style.display = 'none';
+  } else {
+    if(balWrap) balWrap.classList.add('hidden');
+    if(drawerAuth) drawerAuth.classList.remove('hidden');
+    if(drawerUser) drawerUser.classList.add('hidden');
+  }
+}
+
+function openDrawer() {
+  document.getElementById('drawer')?.classList.add('open');
+  document.getElementById('drawerMask')?.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeDrawer() {
+  document.getElementById('drawer')?.classList.remove('open');
+  document.getElementById('drawerMask')?.classList.remove('open');
+  document.body.style.overflow='';
+}
+
+// Swipe gestures
+(function(){
+  let sx=0,sy=0,drag=false,cx=0;
+  const EDGE=32,OT=80,CT=-60;
+  const dw=()=>document.getElementById('drawer');
+  const mk=()=>document.getElementById('drawerMask');
+  document.addEventListener('touchstart',e=>{
+    const t=e.touches[0];sx=t.clientX;sy=t.clientY;drag=false;cx=sx;
+    const o=dw()?.classList.contains('open');
+    if((!o&&sx<=EDGE)||o){drag=true;if(dw())dw().style.transition='none';}
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!drag)return;
+    const t=e.touches[0];const dx=t.clientX-sx;const dy=t.clientY-sy;
+    if(Math.abs(dy)>Math.abs(dx)*1.5){drag=false;return;}
+    e.preventDefault();cx=t.clientX;
+    const o=dw()?.classList.contains('open');
+    const DW=dw()?.offsetWidth||280;
+    if(!o){const p=Math.min(dx/DW,1);dw().style.left=`${-DW*(1-p)}px`;const m=mk();if(m){m.style.display='block';m.style.opacity=String(p*.8);}}
+    else if(dx<0){dw().style.left=`${dx}px`;const m=mk();if(m)m.style.opacity=String((1+dx/DW)*.8);}
+  },{passive:false});
+  document.addEventListener('touchend',()=>{
+    if(!drag)return;drag=false;
+    const d=dw();if(!d)return;
+    const o=d.classList.contains('open');const dx=cx-sx;
+    d.style.transition='';d.style.left='';
+    const m=mk();if(m){m.style.opacity='';m.style.display='';}
+    if(!o&&dx>OT)openDrawer();
+    else if(o&&dx<CT)closeDrawer();
+  },{passive:true});
+})();
+
+/* ═════════════════════════
+   3. WALLET INITIALIZATION
+═════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  initHeader();
+
+  const user = Session.getUser();
+  const token = Session.getToken();
+
+  if (!user || !token) {
+    _showLoginPrompt();
+    return;
+  }
+
+  // Render instantly from cache
+  renderWallet(user);
+
+  // Background: validate JWT + fetch fresh balance
+  _refreshWalletUser();
+});
+
+function _showLoginPrompt() {
+  const pc = document.getElementById('pageContent');
+  if (!pc) return;
+  pc.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 20px;gap:14px;text-align:center">
+      <i class="fa-solid fa-lock" style="font-size:44px;color:var(--muted)"></i>
+      <div style="font-size:18px;font-weight:700;color:var(--text)">Login Required</div>
+      <p style="color:var(--text2);font-size:13px;max-width:280px;line-height:1.6">Please log in to access your wallet and manage your funds.</p>
+      <button onclick="window.location.href='auth.html?mode=login'"
+        style="height:44px;padding:0 28px;border-radius:10px;background:var(--blue);color:#fff;font-size:14px;font-weight:700;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 14px var(--blue-glow,rgba(59,91,219,.35))">
+        <i class="fa-solid fa-arrow-right-to-bracket"></i> Login
+      </button>
+      <a href="auth.html?mode=register" style="font-size:13px;color:var(--text2)">No account? <span style="color:var(--blue-lit);font-weight:600">Register free →</span></a>
+    </div>`;
+}
+
+// Backend check using /api/login to refresh balance securely
+async function _refreshWalletUser() {
+  const userObj = Session.getUser();
+  if(!userObj) return;
+
+  try {
+    const res = await apiFetch('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ phone: userObj.phone, password: userObj.password })
+    });
+    if (!res.ok) {
+        if(res.status === 401 || res.status === 403) {
+            Session.clear();
+            _showLoginPrompt();
+        }
+        return;
+    }
+    const data = await res.json();
+    data.user.password = userObj.password; // Preserve password for future silent polls
+    Session.update(data.user);
+
+    const ba = document.getElementById('balAmount');
+    if (Math.abs((data.user.balance || 0) - (userObj.balance || 0)) > 0.001) {
+      renderWallet(data.user);
+    } else if (ba) {
+      ba.textContent = 'KES ' + fmtMoney(data.user.balance || 0);
+    }
+  } catch(e) { console.error("Silent refresh failed"); }
+}
+
+/* ═════════════════════════
+   4. WALLET RENDERER
+═════════════════════════ */
+function renderWallet(u) {
+  const pc = document.getElementById('pageContent');
+  if (!pc) return;
+
+  let dp = u.phone || '';
+  if (dp.startsWith('254')) dp = '0' + dp.substring(3);
+
+  const ba = document.getElementById('balAmount');
+  if (ba) ba.textContent = 'KES ' + fmtMoney(u.balance || 0);
+
+  pc.innerHTML = `
+    <h1 class="page-title"><i class="fa-solid fa-wallet" style="color:var(--blue-lit)"></i> Wallet</h1>
+
+    <div class="wallet-balance-card">
+      <div class="wbc-label">Available Balance</div>
+      <div class="wbc-amount"><span>KES</span>${fmtMoney(u.balance || 0)}</div>
+      <div class="wbc-actions">
+        <button class="wbc-btn wbc-btn-deposit" onclick="switchTab('deposit')">
+          <i class="fa-solid fa-circle-arrow-down"></i> Deposit
+        </button>
+        <button class="wbc-btn wbc-btn-withdraw" onclick="switchTab('withdraw')">
+          <i class="fa-solid fa-circle-arrow-up"></i> Withdraw
+        </button>
+      </div>
+    </div>
+
+    <div class="tab-btns">
+      <button class="tab-btn active" id="wtab-deposit"  onclick="switchTab('deposit')"><i class="fa-solid fa-circle-arrow-down"></i> Deposit</button>
+      <button class="tab-btn"        id="wtab-withdraw" onclick="switchTab('withdraw')"><i class="fa-solid fa-circle-arrow-up"></i> Withdraw</button>
+      <button class="tab-btn"        id="wtab-history"  onclick="switchTab('history')"><i class="fa-solid fa-clock-rotate-left"></i> History</button>
+    </div>
+
+    <div id="panel-deposit">
+      <div class="section-card" style="margin-bottom:14px">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-credit-card" style="color:var(--green-lit)"></i> Payment Method</div>
+        </div>
+        <div style="padding:14px">
+          <div class="method-grid">
+            <div class="method-card selected" id="m-mpesa" onclick="selectMethod('mpesa')">
+              <div class="method-logo"><i class="fa-solid fa-mobile-screen-button" style="font-size:26px;color:var(--green-lit)"></i></div>
+              <div class="method-name">M-Pesa</div>
+            </div>
+            <div class="method-card" style="opacity:.4;pointer-events:none">
+              <div class="method-logo"><i class="fa-solid fa-sim-card" style="font-size:26px;color:#e83030"></i></div>
+              <div class="method-name">Airtel (Soon)</div>
+            </div>
+            <div class="method-card" style="opacity:.4;pointer-events:none">
+              <div class="method-logo"><i class="fa-brands fa-cc-visa" style="font-size:26px;color:#1a56db"></i></div>
+              <div class="method-name">Visa (Soon)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-money-bill-wave" style="color:var(--yellow)"></i> Enter Amount</div>
+          <span style="font-size:12px;color:var(--green-lit);font-weight:600">Min: KES 50</span>
+        </div>
+        <div style="padding:14px 14px 16px;display:flex;flex-direction:column;gap:14px">
+          <div class="amount-presets">
+            <button class="amt-preset" onclick="pickPreset(this,100)">100</button>
+            <button class="amt-preset" onclick="pickPreset(this,200)">200</button>
+            <button class="amt-preset" onclick="pickPreset(this,500)">500</button>
+            <button class="amt-preset" onclick="pickPreset(this,1000)">1,000</button>
+            <button class="amt-preset" onclick="pickPreset(this,2000)">2,000</button>
+            <button class="amt-preset" onclick="pickPreset(this,5000)">5,000</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (KES)</label>
+            <input class="form-input" type="number" id="depositAmt" placeholder="Enter amount" min="50" style="font-size:16px;font-weight:700"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">M-Pesa Phone Number</label>
+            <div class="phone-row">
+              <div class="phone-prefix"><i class="fa-solid fa-flag" style="font-size:10px;margin-right:4px;opacity:.7"></i>+254</div>
+              <input class="form-input" type="tel" id="mpesaPhone" value="${dp}" placeholder="7XX XXX XXX"
+                style="border-radius:0 var(--radius) var(--radius) 0;flex:1;width:100%"/>
+            </div>
+            <div class="form-hint">You'll receive an M-Pesa STK push on your phone.</div>
+          </div>
+          <div class="form-alert" id="depositAlert" style="display:none"></div>
+          <button class="btn-form-submit green" id="btnDeposit" onclick="doDeposit('${u.phone}')">
+            <div class="spinner"></div>
+            <span class="btn-label"><i class="fa-solid fa-circle-arrow-down" style="margin-right:6px"></i>Deposit Now</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-withdraw" style="display:none">
+      <div class="section-card">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-circle-arrow-up" style="color:var(--blue-lit)"></i> Withdraw Funds</div>
+        </div>
+        <div style="padding:14px 14px 16px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;background:linear-gradient(135deg,#042318,#065f46);border:1px solid rgba(9,146,104,.3)">
+            <i class="fa-solid fa-wallet" style="font-size:22px;color:var(--green-lit)"></i>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:500">Available to withdraw</div>
+              <div style="font-size:20px;font-weight:800;color:#fff" id="withdrawAvailBal">KES ${fmtMoney(u.balance || 0)}</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <div class="phone-row">
+              <div class="phone-prefix"><i class="fa-solid fa-flag" style="font-size:10px;margin-right:4px;opacity:.7"></i>+254</div>
+              <input class="form-input" type="tel" id="withdrawPhone" value="${dp}" placeholder="7XX XXX XXX"
+                style="border-radius:0 var(--radius) var(--radius) 0;flex:1;width:100%" disabled/>
+            </div>
+            <div class="form-hint">Funds sent to your registered number for security.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (KES)</label>
+            <input class="form-input" type="number" id="withdrawAmt" placeholder="Min. KES 100"/>
+            <div class="form-hint">Min: KES 100 · Max: KES 150,000</div>
+          </div>
+          <div class="form-alert" id="withdrawAlert" style="display:none"></div>
+          <button class="btn-form-submit" id="btnWithdraw" onclick="doWithdraw('${u.phone}',${u.balance || 0})">
+            <div class="spinner"></div>
+            <span class="btn-label"><i class="fa-solid fa-paper-plane" style="margin-right:6px"></i>Request Withdrawal</span>
+          </button>
+          <div class="form-hint" style="text-align:center;color:var(--muted)">
+            <i class="fa-regular fa-clock" style="margin-right:4px"></i> Processed within 24 hours.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-history" style="display:none">
+      <div class="section-card">
+        <div class="section-card-head">
+          <div class="section-card-title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--blue-lit)"></i> Transaction History</div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tx-table">
+            <thead><tr><th>Type</th><th>Method</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="txBody">
+              <tr><td colspan="5" style="text-align:center;padding:30px">
+                <i class="fa-solid fa-spinner fa-spin" style="font-size:20px;color:var(--blue-lit)"></i>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ═════════════════════════
+   5. UI INTERACTIONS
+═════════════════════════ */
+function switchTab(tab) {
+  ['deposit','withdraw','history'].forEach(t => {
+    document.getElementById('wtab-' + t)?.classList.toggle('active', t === tab);
+    const p = document.getElementById('panel-' + t);
+    if (p) p.style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'history') loadHistory();
+}
+
+function selectMethod(m) {
+  document.querySelectorAll('.method-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('m-' + m)?.classList.add('selected');
+}
+
+function pickPreset(btn, amt) {
+  document.querySelectorAll('.amt-preset').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('depositAmt').value = amt;
+}
+
+function showFormAlert(id, msg, type = 'error') {
+  const el = document.getElementById(id); if (!el) return;
+  const icon = type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation';
+  el.innerHTML = `<i class="fa-solid ${icon}"></i> ${msg}`;
+  el.className = `form-alert show ${type}`;
+  el.style.display = 'flex';
+}
+function clearFormAlert(id) { const el = document.getElementById(id); if (el) { el.className='form-alert'; el.style.display='none'; } }
+function setBtn(id, on) { const b = document.getElementById(id); if (!b) return; b.classList.toggle('loading', on); b.disabled = on; }
+
+/* ═════════════════════════
+   6. DEPOSIT / STK PUSH
+═════════════════════════ */
+async function doDeposit(phone) {
+  clearFormAlert('depositAlert');
+  const amt = parseFloat(document.getElementById('depositAmt')?.value);
+  const ph  = document.getElementById('mpesaPhone')?.value?.trim();
+  if (!amt || amt < 50)   return showFormAlert('depositAlert', 'Minimum deposit is KES 50.');
+  if (!ph || ph.length < 9) return showFormAlert('depositAlert', 'Enter a valid M-Pesa number (e.g. 07XXXXXXXX).');
+
+  setBtn('btnDeposit', true);
+  try {
+    const res  = await apiFetch('/api/deposit', {
+      method: 'POST',
+      body:   JSON.stringify({ username: phone, phone: ph, amount: amt }),
+    });
+    const data = res ? await res.json() : null;
+    setBtn('btnDeposit', false);
+
+    if (res?.ok) {
+      showFormAlert('depositAlert', data?.message || 'Check your phone for the M-Pesa PIN prompt!', 'success');
+      document.getElementById('depositAmt').value = '';
+      document.querySelectorAll('.amt-preset').forEach(b => b.classList.remove('active'));
+      
+      // Poll backend to check if balance was updated
+      let polls = 0;
+      const userObj = Session.getUser();
+      let prevBal = userObj?.balance || 0;
+      
+      const poll = setInterval(async () => {
+        const r = await apiFetch('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ phone: userObj.phone, password: userObj.password })
+        });
+        if (r?.ok) {
+          const uData = await r.json();
+          uData.user.password = userObj.password;
+          Session.update(uData.user);
+          if (uData.user.balance > prevBal) {
+            clearInterval(poll);
+            renderWallet(uData.user);
+            showFormAlert('depositAlert', `KES ${fmtMoney(amt)} deposited successfully! New balance: KES ${fmtMoney(uData.user.balance)}`, 'success');
+            return;
+          }
+        }
+        if (++polls >= 12) clearInterval(poll); // Stop polling after 60 seconds
+      }, 5000);
+    } else {
+      showFormAlert('depositAlert', data?.error || 'Deposit failed. Please try again.');
+    }
+  } catch {
+    setBtn('btnDeposit', false);
+    showFormAlert('depositAlert', 'Network error. Please check your connection.');
+  }
+}
+
+/* ═════════════════════════
+   7. WITHDRAWAL
+═════════════════════════ */
+async function doWithdraw(phone, bal) {
+  clearFormAlert('withdrawAlert');
+  const amt = parseFloat(document.getElementById('withdrawAmt')?.value);
+  if (!amt || amt < 100)  return showFormAlert('withdrawAlert', 'Minimum withdrawal is KES 100.');
+  if (amt > 150000)       return showFormAlert('withdrawAlert', 'Maximum withdrawal is KES 150,000.');
+  if (amt > bal)          return showFormAlert('withdrawAlert', `Insufficient balance. Available: KES ${fmtMoney(bal)}`);
+  setBtn('btnWithdraw', true);
+  try {
+    const res  = await apiFetch('/api/withdraw', {
+      method: 'POST',
+      body:   JSON.stringify({ username: phone, amount: amt }),
+    });
+    const data = res ? await res.json() : null;
+    setBtn('btnWithdraw', false);
+
+    if (res?.ok) {
+      Session.update({ balance: parseFloat(data.newBalance) });
+      renderWallet(Session.getUser());
+      switchTab('withdraw');
+      showFormAlert('withdrawAlert', `Withdrawal of KES ${fmtMoney(amt)} submitted! You'll receive M-Pesa within 24 hours.`, 'success');
+    } else {
+      showFormAlert('withdrawAlert', data?.error || 'Withdrawal failed. Please try again.');
+    }
+  } catch {
+    setBtn('btnWithdraw', false);
+    showFormAlert('withdrawAlert', 'Network error. Please check your connection.');
+  }
+}
+
+/* ═════════════════════════
+   8. TRANSACTION HISTORY
+═════════════════════════ */
+async function loadHistory() {
+  const tbody = document.getElementById('txBody'); if (!tbody) return;
+  const user  = Session.getUser();    if (!user) return;
+
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:28px">
+    <i class="fa-solid fa-spinner fa-spin" style="font-size:20px;color:var(--blue-lit)"></i>
+  </td></tr>`;
+
+  try {
+    const [betRes, txRes] = await Promise.all([
+      apiFetch(`/api/history/${user.phone}`),
+      apiFetch(`/api/transactions/${user.phone}`)
+    ]);
+
+    const bets = (betRes?.ok) ? await betRes.json() : [];
+    const txs  = (txRes?.ok)  ? await txRes.json()  : [];
+
+    const betRows = bets.map(b => ({
+      type:    b.winnings > 0 ? 'Game Win' : 'Game Bet',
+      method:  'Aviator',
+      amount:  b.winnings > 0 ? b.winnings : -b.betAmount,
+      status:  b.winnings > 0 ? 'success'  : 'failed',
+      dateObj: new Date(b.createdAt),
+    }));
+
+    const txRows = txs.map(t => ({
+      type:    t.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal',
+      method:  t.method || 'M-Pesa',
+      amount:  t.type === 'DEPOSIT' ? t.amount : -t.amount,
+      status:  t.status === 'COMPLETED' ? 'success' : t.status === 'PENDING_ADMIN_APPROVAL' ? 'pending' : t.status === 'REJECTED' ? 'rejected' : 'pending',
+      dateObj: new Date(t.createdAt),
+    }));
+
+    const all = [...betRows, ...txRows].sort((a, b) => b.dateObj - a.dateObj);
+
+    if (!all.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          <i class="fa-regular fa-inbox" style="font-size:32px;color:var(--muted)"></i>
+          <span style="color:var(--text2);font-size:13px">No transactions yet</span>
+        </div></td></tr>`;
+      return;
+    }
+
+    const statusMap = {
+      success:  { cls:'tx-done',    label:'Done' },
+      failed:   { cls:'tx-failed',  label:'Lost' },
+      pending:  { cls:'tx-pending', label:'Pending' },
+      rejected: { cls:'tx-failed',  label:'Rejected' },
+    };
+
+    tbody.innerHTML = all.map(t => {
+      const { cls, label } = statusMap[t.status] || { cls:'tx-pending', label:'Pending' };
+      return `<tr>
+        <td style="color:var(--text);font-weight:600">${t.type}</td>
+        <td style="color:var(--text2)">${t.method}</td>
+        <td class="${t.amount > 0 ? 'tx-plus' : 'tx-minus'}">${t.amount > 0 ? '+' : '-'}KES ${fmtMoney(Math.abs(t.amount))}</td>
+        <td><span class="tx-status ${cls}">${label}</span></td>
+        <td style="color:var(--muted);font-size:12px">${fmtDate(t.dateObj)}</td>
+      </tr>`;
+    }).join('');
+
+  } catch {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red-lit);padding:24px">
+      <i class="fa-solid fa-triangle-exclamation"></i> Failed to load history. Check your connection.
+    </td></tr>`;
+  }
+}
+</script>
+</body>
+</html>

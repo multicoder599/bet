@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>UrbanBet — Kenya's #1 Game Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css"/>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    /* ── TAB CONTENT AREA ── */
+    #tabContent { min-height: 200px; }
+
+    /* Loading skeleton */
+    .tab-loading {
+      display: flex; flex-direction: column; gap: 14px; padding: 8px 0;
+    }
+    .skel-row {
+      display: flex; gap: 10px; overflow: hidden;
+    }
+    .skel-card {
+      flex-shrink: 0; width: 168px; aspect-ratio: 3/4; border-radius: 14px;
+      background: linear-gradient(90deg, var(--surface2) 25%, var(--surface3) 50%, var(--surface2) 75%);
+      background-size: 400% 100%;
+      animation: shimmer 1.4s ease infinite;
+    }
+    @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+
+    .skel-title {
+      height: 22px; width: 180px; border-radius: 6px;
+      background: linear-gradient(90deg, var(--surface2) 25%, var(--surface3) 50%, var(--surface2) 75%);
+      background-size: 400% 100%;
+      animation: shimmer 1.4s ease infinite;
+    }
+
+    /* Coming soon panel */
+    .coming-soon-panel {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 60px 20px; text-align: center; gap: 14px;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xl);
+    }
+    .cs-icon { font-size: 48px; }
+    .cs-title {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 900;
+      color: var(--text); text-transform: uppercase; letter-spacing: .3px;
+    }
+    .cs-sub { font-size: 14px; color: var(--text2); max-width: 300px; line-height: 1.5; }
+    .cs-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--blue-dim); border: 1px solid rgba(59,91,219,.3);
+      border-radius: 20px; padding: 6px 16px;
+      font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700;
+      color: var(--blue-lit); text-transform: uppercase; letter-spacing: .4px;
+    }
+
+    /* Drag handle indicator */
+    .drawer-drag-hint {
+      position: fixed; left: 0; top: 50%; transform: translateY(-50%);
+      width: 4px; height: 60px; background: var(--blue);
+      border-radius: 0 4px 4px 0; z-index: 900; opacity: .35;
+      transition: opacity .2s, width .2s;
+      pointer-events: none;
+    }
+    body:not(.drawer-open) .drawer-drag-hint { display: flex; }
+    body.drawer-open .drawer-drag-hint { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- Swipe hint on mobile -->
+<div class="drawer-drag-hint mobile-only" id="dragHint"></div>
+
+<!-- DRAWER MASK -->
+<div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+
+<!-- MOBILE DRAWER -->
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="logo">Urban<span>Bet</span></span>
+    <button class="icon-btn" onclick="closeDrawer()"><i class="pi pi-times"></i></button>
+  </div>
+
+  <!-- User row -->
+  <div class="drawer-user-row" onclick="window.location.href='profile.html'">
+    <div class="drawer-avatar">
+      <img id="drawerAvatarImg" src="" onerror="this.style.display='none'" style="display:none"/>
+      <i class="pi pi-user" id="drawerAvatarIcon"></i>
+    </div>
+    <span class="d-username" id="drawerUsername">Log in to your account</span>
+    <i class="pi pi-chevron-right d-chevron"></i>
+  </div>
+
+  <!-- Free money -->
+  <div class="drawer-free-money" onclick="window.location.href='wallet.html'">
+    <div>
+      <div class="dfm-title">Free Money</div>
+      <div class="dfm-sub">Deposit bonus &amp; prizes</div>
+    </div>
+    <div class="dfm-emoji">💸</div>
+  </div>
+
+  <nav class="drawer-nav">
+    <!-- Casino section -->
+    <div class="drawer-section-label">Casino</div>
+    <a class="dnav-item active" href="index.html"><i class="pi pi-th-large"></i> Casino</a>
+    <a class="dnav-item" href="live-casino.html"><i class="pi pi-play-circle"></i> Live Casino</a>
+    <a class="dnav-item" href="quick-games.html"><i class="pi pi-bolt"></i> Quick Games</a>
+    <a class="dnav-item" href="tournaments.html"><i class="pi pi-shield"></i> Tournaments</a>
+
+    <!-- Main section -->
+    <div class="drawer-section-label">Main</div>
+    <a class="dnav-item" href="sports.html"><i class="pi pi-globe"></i> Sports</a>
+    <a class="dnav-item" href="markets.html"><i class="pi pi-chart-bar"></i> Markets</a>
+    <a class="dnav-item" href="bonuses.html"><i class="pi pi-gift"></i> Bonuses <span class="dnav-badge">1</span></a>
+    <a class="dnav-item" href="vip.html"><i class="pi pi-star"></i> VIP Club</a>
+    <div class="dnav-sep"></div>
+
+    <!-- More section -->
+    <div class="drawer-section-label">More</div>
+    <a class="dnav-item" href="promotions.html"><i class="pi pi-percentage"></i> Promotions</a>
+    <a class="dnav-item" href="blog.html"><i class="pi pi-book"></i> Blog</a>
+    <a class="dnav-item" href="forum.html"><i class="pi pi-comments"></i> Forum</a>
+    <a class="dnav-item" href="trading.html"><i class="pi pi-sync"></i> Trading</a>
+    <a class="dnav-item" href="poker.html"><i class="pi pi-th-large"></i> Poker</a>
+    <div class="dnav-sep"></div>
+
+    <!-- Account -->
+    <a class="dnav-item" href="profile.html"><i class="pi pi-user"></i> Profile</a>
+    <a class="dnav-item" href="wallet.html"><i class="pi pi-wallet"></i> Wallet</a>
+    <a class="dnav-item" href="settings.html"><i class="pi pi-cog"></i> Settings</a>
+  </nav>
+
+  <div class="drawer-footer">
+    <div id="drawerAuthGroup">
+      <button class="btn-register wide" onclick="window.location.href='auth.html?mode=register'">Register Free</button>
+      <a href="support.html" style="margin-top:8px;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border-radius:8px;background:var(--surface2);font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:var(--text2);letter-spacing:.3px;text-transform:uppercase;text-decoration:none">
+        <i class="pi pi-headphones"></i> Support 24/7
+      </a>
+    </div>
+    <div id="drawerUserGroup" class="hidden">
+      <button class="drawer-logout" onclick="Auth.logout()"><i class="pi pi-sign-out"></i> Log Out</button>
+    </div>
+  </div>
+</aside>
+
+<!-- ██████  HEADER  ██████ -->
+<header class="header">
+  <div class="header-left">
+    <button class="icon-btn" id="hamburgerBtn" onclick="openDrawer()">
+      <i class="pi pi-bars"></i>
+    </button>
+    <a class="logo" href="index.html">Urban<span>Bet</span></a>
+  </div>
+
+  <div class="header-nav desktop-only">
+    <a class="hnav-btn active" href="index.html" title="Casino"><i class="pi pi-th-large"></i></a>
+    <a class="hnav-btn" href="bonuses.html" title="Bonuses"><i class="pi pi-gift"></i></a>
+    <a class="hnav-btn" href="sports.html" title="Sports"><i class="pi pi-globe"></i></a>
+  </div>
+
+  <div class="header-right">
+    <div id="balWrap" style="display:none">
+      <div class="bal-chip" onclick="window.location.href='wallet.html'">
+        <span class="bal-amount" id="balAmount">KES 0.00</span>
+        <span class="bal-plus"><i class="pi pi-plus"></i></span>
+      </div>
+    </div>
+    <button class="btn-login" id="btnLogin" onclick="window.location.href='auth.html?mode=login'">Login</button>
+    <button class="btn-register" id="btnRegister" onclick="window.location.href='auth.html?mode=register'">Registration</button>
+  </div>
+</header>
+
+<!-- ██████  LAYOUT  ██████ -->
+<div class="layout">
+
+  <!-- SIDEBAR — desktop only -->
+  <aside class="sidebar desktop-only">
+    <nav class="sidebar-nav">
+      <div class="snav-section-label">Casino</div>
+      <a class="snav-item active" href="index.html"><i class="pi pi-th-large"></i><span>Casino</span></a>
+      <a class="snav-item" href="live-casino.html"><i class="pi pi-play-circle"></i><span>Live Casino</span></a>
+      <a class="snav-item" href="quick-games.html"><i class="pi pi-bolt"></i><span>Quick Games</span></a>
+      <a class="snav-item" href="tournaments.html"><i class="pi pi-shield"></i><span>Tournaments</span></a>
+      <div class="snav-divider"></div>
+
+      <div class="snav-section-label">Main</div>
+      <a class="snav-item" href="sports.html"><i class="pi pi-globe"></i><span>Sports</span></a>
+      <a class="snav-item" href="markets.html"><i class="pi pi-chart-bar"></i><span>Markets</span></a>
+      <a class="snav-item" href="bonuses.html"><i class="pi pi-gift"></i><span>Bonuses</span><span class="snav-badge">1</span></a>
+      <a class="snav-item" href="vip.html"><i class="pi pi-star"></i><span>VIP Club</span></a>
+      <div class="snav-divider"></div>
+
+      <div class="snav-section-label">More</div>
+      <a class="snav-item" href="promotions.html"><i class="pi pi-percentage"></i><span>Promotions</span></a>
+      <a class="snav-item" href="blog.html"><i class="pi pi-book"></i><span>Blog</span></a>
+      <a class="snav-item" href="forum.html"><i class="pi pi-comments"></i><span>Forum</span></a>
+      <a class="snav-item" href="trading.html"><i class="pi pi-sync"></i><span>Trading</span></a>
+      <a class="snav-item" href="poker.html"><i class="pi pi-th-large"></i><span>Poker</span></a>
+      <div class="snav-divider"></div>
+
+      <a class="snav-item" href="profile.html"><i class="pi pi-user"></i><span>Profile</span></a>
+      <a class="snav-item" href="wallet.html"><i class="pi pi-wallet"></i><span>Wallet</span></a>
+      <a class="snav-item" href="settings.html"><i class="pi pi-cog"></i><span>Settings</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-app-card" onclick="showToast('App coming soon! 📱')">
+        <span class="sac-icon">📱</span>
+        <div><div class="sac-title">UrbanBet App</div><div class="sac-sub">Download for Android</div></div>
+        <i class="pi pi-chevron-right" style="color:var(--muted);font-size:11px;margin-left:auto;flex-shrink:0"></i>
+      </div>
+      <div class="sidebar-socials">
+        <a class="social-btn sb-wa" href="#"><i class="pi pi-whatsapp"></i></a>
+        <a class="social-btn sb-tg" href="#"><i class="pi pi-telegram"></i></a>
+        <a class="social-btn sb-ig" href="#"><i class="pi pi-instagram"></i></a>
+      </div>
+      <div class="support-link" onclick="window.location.href='support.html'">
+        <i class="pi pi-headphones"></i> Support 24/7
+      </div>
+    </div>
+  </aside>
+
+  <!-- ██████  MAIN  ██████ -->
+  <main class="main">
+
+    <!-- Live wins ticker -->
+    <div class="ticker-bar">
+      <div class="ticker-label"><span class="ticker-dot"></span> Live Wins</div>
+      <div class="ticker-track"><div class="ticker-inner" id="tickerInner"></div></div>
+    </div>
+
+    <div class="content-pad">
+
+      <!-- ── SUBNAV TABS — click loads content inline ── -->
+      <div class="subnav" style="margin-top:16px" id="mainTabs">
+        <button class="snav-pill active"
+          data-tab="lobby" data-src="index.html"
+          onclick="loadTab(this)">
+          <i class="pi pi-th-large" style="font-size:12px"></i> Lobby
+        </button>
+        <button class="snav-pill"
+          data-tab="live-casino" data-src="live-casino.html"
+          onclick="loadTab(this)">
+          <span class="live-dot"></span> Live Casino
+        </button>
+        <button class="snav-pill"
+          data-tab="quick-games" data-src="quick-games.html"
+          onclick="loadTab(this)">
+          <i class="pi pi-bolt" style="font-size:11px"></i> Quick Games
+        </button>
+        <button class="snav-pill"
+          data-tab="sports" data-src="sports.html"
+          onclick="loadTab(this)">
+          <i class="pi pi-globe" style="font-size:11px"></i> Sports
+        </button>
+      </div>
+
+      <!-- ── TAB CONTENT AREA ── -->
+      <div id="tabContent">
+
+        <!-- ══ LOBBY CONTENT (default) ══ -->
+        <div id="lobbyContent">
+
+          <!-- SEARCH -->
+          <div class="search-row fade-in fade-in-1">
+            <div class="search-box">
+              <i class="pi pi-search"></i>
+              <input type="text" placeholder="Search games, providers..." id="searchInput" oninput="searchGames(this.value)"/>
+            </div>
+            <button class="providers-btn desktop-only"><i class="pi pi-sliders-h"></i> Providers</button>
+          </div>
+
+          <!-- CATEGORY CHIPS — each fetches from its HTML file -->
+          <div class="chip-row fade-in fade-in-2" id="chipRow">
+            <button class="chip active"
+              data-chip="all" data-src="index.html"
+              onclick="loadChip(this)">
+              <i class="pi pi-th-large" style="font-size:11px"></i> Lobby
+            </button>
+            <button class="chip"
+              data-chip="urbanbet" data-src="urbanbet-games.html"
+              onclick="loadChip(this)">
+              ⚡ UrbanBet
+            </button>
+            <button class="chip"
+              data-chip="crash" data-src="crash-games.html"
+              onclick="loadChip(this)">
+              ✈️ Crash
+            </button>
+            <button class="chip"
+              data-chip="quick" data-src="quick-games.html"
+              onclick="loadChip(this)">
+              🚀 Quick
+            </button>
+            <button class="chip"
+              data-chip="slots" data-src="slots.html"
+              onclick="loadChip(this)">
+              🎰 Slots
+            </button>
+            <button class="chip"
+              data-chip="live" data-src="live-casino.html"
+              onclick="loadChip(this)">
+              <span class="live-dot"></span> Live
+            </button>
+            <button class="chip"
+              data-chip="forex" data-src="forex.html"
+              onclick="loadChip(this)">
+              📊 Forex
+            </button>
+            <button class="chip"
+              data-chip="poker" data-src="poker.html"
+              onclick="loadChip(this)">
+              ♠️ Poker
+            </button>
+            <button class="chip"
+              data-chip="new" data-src="new-games.html"
+              onclick="loadChip(this)">
+              <span class="chip-new">NEW</span>
+            </button>
+          </div>
+
+          <!-- ── CHIP CONTENT: lobby games (default) ── -->
+          <div id="chipContent">
+
+            <!-- Section: UrbanBet Originals -->
+            <section class="game-section fade-in fade-in-3" id="secUrbanbet">
+              <div class="sec-head">
+                <div class="sec-title">
+                  <div class="sec-icon-wrap" style="background:rgba(139,92,246,.18)">⚡</div>
+                  UrbanBet Games
+                </div>
+                <div class="sec-controls">
+                  <a class="sec-all" href="urbanbet-games.html">All games <i class="pi pi-chevron-right" style="font-size:10px"></i></a>
+                  <button class="sec-arr" onclick="scrollRow('urbanbet-row',-1)"><i class="pi pi-chevron-left"></i></button>
+                  <button class="sec-arr" onclick="scrollRow('urbanbet-row',1)"><i class="pi pi-chevron-right"></i></button>
+                </div>
+              </div>
+              <div class="games-row" id="urbanbet-row"></div>
+            </section>
+
+            <!-- Section: Quick Games -->
+            <section class="game-section fade-in fade-in-3" id="secQuick">
+              <div class="sec-head">
+                <div class="sec-title">
+                  <div class="sec-icon-wrap" style="background:rgba(249,115,22,.18)">🚀</div>
+                  Quick Games
+                </div>
+                <div class="sec-controls">
+                  <a class="sec-all" href="quick-games.html">All games <i class="pi pi-chevron-right" style="font-size:10px"></i></a>
+                  <button class="sec-arr" onclick="scrollRow('quick-row',-1)"><i class="pi pi-chevron-left"></i></button>
+                  <button class="sec-arr" onclick="scrollRow('quick-row',1)"><i class="pi pi-chevron-right"></i></button>
+                </div>
+              </div>
+              <div class="games-row" id="quick-row"></div>
+            </section>
+
+            <!-- Section: Popular -->
+            <section class="game-section fade-in fade-in-4" id="secPopular">
+              <div class="sec-head">
+                <div class="sec-title">
+                  <div class="sec-icon-wrap" style="background:rgba(239,68,68,.18)">🔥</div>
+                  Popular Now
+                </div>
+                <div class="sec-controls">
+                  <a class="sec-all" href="popular.html">All games <i class="pi pi-chevron-right" style="font-size:10px"></i></a>
+                  <button class="sec-arr" onclick="scrollRow('popular-row',-1)"><i class="pi pi-chevron-left"></i></button>
+                  <button class="sec-arr" onclick="scrollRow('popular-row',1)"><i class="pi pi-chevron-right"></i></button>
+                </div>
+              </div>
+              <div class="games-row" id="popular-row"></div>
+            </section>
+
+            <!-- Promo cards -->
+            <div class="promo-strip fade-in fade-in-4">
+              <div class="promo-card" onclick="window.location.href='auth.html?mode=register'">
+                <div class="promo-card-bg"><img src="https://images.unsplash.com/photo-1579621970795-87facc2f976d?w=700&q=75" alt=""/></div>
+                <div class="promo-body">
+                  <div class="promo-tag" style="color:var(--green-lit)">🎁 New Player</div>
+                  <div class="promo-title">200% Deposit<br>Welcome Bonus</div>
+                  <span class="promo-cta" style="background:var(--green);color:#fff">
+                    <i class="pi pi-arrow-right" style="font-size:10px"></i> Claim Bonus
+                  </span>
+                </div>
+              </div>
+              <div class="promo-card" onclick="window.location.href='profile.html'">
+                <div class="promo-card-bg"><img src="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=700&q=75" alt=""/></div>
+                <div class="promo-body">
+                  <div class="promo-tag" style="color:var(--yellow-lit)">🤝 Refer &amp; Earn</div>
+                  <div class="promo-title">Earn 40% on<br>Friend Deposits</div>
+                  <span class="promo-cta" style="background:var(--yellow);color:#000">
+                    <i class="pi pi-share-alt" style="font-size:10px"></i> Invite Friends
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /#chipContent -->
+        </div><!-- /#lobbyContent -->
+
+      </div><!-- /#tabContent -->
+    </div><!-- /.content-pad -->
+  </main>
+</div><!-- /.layout -->
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav mobile-only">
+  <a class="bn-item active" href="index.html"><i class="pi pi-th-large"></i><span>Home</span></a>
+  <a class="bn-item" href="sports.html"><i class="pi pi-globe"></i><span>Sports</span></a>
+  <div class="bn-center">
+    <a class="bn-play-btn" href="aviator.html"><i class="pi pi-play" style="margin-left:2px"></i></a>
+  </div>
+  <a class="bn-item" href="wallet.html"><i class="pi pi-wallet"></i><span>Wallet</span></a>
+  <a class="bn-item" href="profile.html"><i class="pi pi-user"></i><span>Profile</span></a>
+</nav>
+
+<script src="app.js"></script>
+<script>
+/* ══════════════════════════════════
+   TAB LOADING — loads HTML pages inline
+═══════════════════════════════════ */
+const _tabCache = {};
+
+function showSkeletons(containerId, rows = 2) {
+  const skels = Array.from({length: rows}, (_, r) =>
+    `<div class="skel-title" style="margin-bottom:10px;animation-delay:${r*.1}s"></div>
+     <div class="skel-row">${Array.from({length:6},(_,i)=>`<div class="skel-card" style="animation-delay:${(r*.3+i*.06).toFixed(2)}s"></div>`).join('')}</div>`
+  ).join('');
+  document.getElementById(containerId).innerHTML = `<div class="tab-loading">${skels}</div>`;
+}
+
+function showComingSoon(containerId, page) {
+  document.getElementById(containerId).innerHTML = `
+    <div class="coming-soon-panel">
+      <div class="cs-icon">🚧</div>
+      <div class="cs-title">${page} — Coming Soon</div>
+      <div class="cs-sub">This section is under construction. We're building something amazing for you.</div>
+      <span class="cs-badge"><i class="pi pi-clock" style="font-size:11px"></i> In Development</span>
+    </div>`;
+}
+
+async function loadTab(btn) {
+  const allBtns = document.querySelectorAll('#mainTabs .snav-pill');
+  allBtns.forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const tab  = btn.dataset.tab;
+  const src  = btn.dataset.src;
+  const box  = document.getElementById('tabContent');
+
+  // Lobby = show default #lobbyContent
+  if (tab === 'lobby' || !src) {
+    box.innerHTML = '';
+    // Re-render lobby
+    box.appendChild(_buildLobbyDOM());
+    populateGames();
+    return;
+  }
+
+  // Check cache
+  if (_tabCache[tab]) {
+    box.innerHTML = _tabCache[tab];
+    return;
+  }
+
+  // Show skeleton loader
+  box.innerHTML = '<div id="__tabInner"></div>';
+  showSkeletons('__tabInner', 3);
+
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error('not found');
+    const html = await res.text();
+
+    // Try to extract just the #pageContent or <main> from the fetched page
+    const parser = new DOMParser();
+    const doc    = parser.parseFromString(html, 'text/html');
+    const inner  = doc.getElementById('pageContent') || doc.querySelector('main') || doc.body;
+    const content = inner.innerHTML;
+
+    _tabCache[tab] = content;
+    box.innerHTML  = content;
+
+    // Re-run any scripts needed
+    box.querySelectorAll('script').forEach(s => {
+      const ns = document.createElement('script');
+      ns.textContent = s.textContent;
+      document.body.appendChild(ns);
+    });
+
+  } catch (e) {
+    const name = btn.textContent.trim();
+    showComingSoon('tabContent', name);
+    // Cache the coming soon so we don't keep fetching
+    _tabCache[tab] = document.getElementById('tabContent').innerHTML;
+  }
+}
+
+/* ══════════════════════════════════
+   CHIP LOADING — loads chip pages inline
+═══════════════════════════════════ */
+const _chipCache = {};
+
+async function loadChip(btn) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+
+  const chip = btn.dataset.chip;
+  const src  = btn.dataset.src;
+  const box  = document.getElementById('chipContent');
+
+  // "all" / Lobby = show all game sections (built-in)
+  if (chip === 'all' || !src) {
+    if (_chipCache['all']) {
+      box.innerHTML = _chipCache['all'];
+      return;
+    }
+    // Filter: show everything
+    document.querySelectorAll('.gc').forEach(c => c.style.display = '');
+    document.querySelectorAll('.game-section').forEach(s => s.style.display = '');
+    return;
+  }
+
+  // Check cache
+  if (_chipCache[chip]) {
+    box.innerHTML = _chipCache[chip];
+    return;
+  }
+
+  // Try to load
+  box.innerHTML = '<div id="__chipInner"></div>';
+  showSkeletons('__chipInner', 2);
+
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error('not found');
+    const html = await res.text();
+    const parser = new DOMParser();
+    const doc    = parser.parseFromString(html, 'text/html');
+    const inner  = doc.getElementById('pageContent') || doc.querySelector('main') || doc.body;
+
+    _chipCache[chip] = inner.innerHTML;
+    box.innerHTML    = inner.innerHTML;
+
+  } catch(e) {
+    // Page doesn't exist yet — show inline coming soon
+    const name = btn.textContent.trim();
+    box.innerHTML = `
+      <div class="coming-soon-panel">
+        <div class="cs-icon">🚧</div>
+        <div class="cs-title">${name} — Coming Soon</div>
+        <div class="cs-sub">This game category is being added. Check back soon!</div>
+        <span class="cs-badge"><i class="pi pi-clock" style="font-size:11px"></i> In Development</span>
+      </div>`;
+    _chipCache[chip] = box.innerHTML;
+  }
+}
+
+/* Build lobby DOM node for tab switching back */
+function _buildLobbyDOM() {
+  const div = document.createElement('div');
+  div.id = 'lobbyContent';
+  div.innerHTML = document.getElementById('lobbyContent')?.outerHTML ||
+    document.querySelector('#tabContent').innerHTML;
+  return div;
+}
+
+/* ══════════════════════════════════
+   MAIN INIT
+═══════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  initHeader();
+  populateGames();
+  buildTicker();
+});
+</script>
+</body>
+</html>
