@@ -1,8 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * URBANBET — PRODUCTION SERVER  v2.0
+ * URBANBET — PRODUCTION SERVER  v3.0
  * Node.js + Express + Socket.IO + MongoDB
  * (Protected with Atomic Transactions & Regex Login)
+ * Includes Aviator Engine & Virtual Sports Engine
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -140,6 +141,17 @@ const BetSchema = new mongoose.Schema({
   createdAt:         { type: Date, default: Date.now, index: true },
 });
 
+const VirtualBetSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  username:    String,
+  stake:       { type: Number, required: true, min: 0 },
+  potential:   { type: Number, required: true },
+  selections:  [{ id: String, league: String, match: String, pick: String, odd: Number, market: String }],
+  md:          { type: Number, index: true },
+  status:      { type: String, enum: ['PENDING','WON','LOST'], default: 'PENDING', index: true },
+  createdAt:   { type: Date, default: Date.now },
+});
+
 const TransactionSchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   type:    { type: String, enum: ['DEPOSIT','WITHDRAWAL'], required: true },
@@ -197,6 +209,7 @@ const AuditSchema = new mongoose.Schema({
 
 const User        = mongoose.model('User',        UserSchema);
 const Bet         = mongoose.model('Bet',         BetSchema);
+const VirtualBet  = mongoose.model('VirtualBet',  VirtualBetSchema);
 const Transaction = mongoose.model('Transaction', TransactionSchema);
 const Commission  = mongoose.model('Commission',  CommissionSchema);
 const Round       = mongoose.model('Round',       RoundSchema);
@@ -312,7 +325,7 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-/* POST /api/login (FIXED: Supports both Phone and Text Username) */
+/* POST /api/login (Supports both Phone and Text Username) */
 app.post('/api/login', async (req, res) => {
   try {
     const identifier = req.body.username || req.body.phone || '';
@@ -525,7 +538,7 @@ app.post('/api/megapay/webhook', async (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   WITHDRAWAL (FIXED: ATOMIC PREVENTS RACE CONDITIONS)
+   WITHDRAWAL (ATOMIC PREVENTS RACE CONDITIONS)
 ──────────────────────────────────────── */
 app.post('/api/withdraw', async (req, res) => {
   try {
@@ -541,14 +554,13 @@ app.post('/api/withdraw', async (req, res) => {
         { 
             $or: [{ phone: username }, { username }], 
             status: 'active',
-            balance: { $gte: amt } // Crucial: Ensures balance doesn't drop below 0
+            balance: { $gte: amt } 
         },
         { $inc: { balance: -amt } },
         { new: true }
     );
 
     if (!user) {
-        // Give explicit error if atomic query failed
         const userCheck = await User.findOne({ $or: [{ phone: username }, { username }] });
         if (!userCheck) return res.status(404).json({ error: 'User not found.' });
         if (userCheck.status !== 'active') return res.status(403).json({ error: 'Account is not active.' });
@@ -919,7 +931,174 @@ app.get('/api/admin/game-state', verifyAdmin, (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   SECURE GAME ENGINE
+   VIRTUAL SPORTS ENGINE (Server-Side)
+──────────────────────────────────────── */
+const V_LEAGUES = {
+  epl: { name: 'Virtual Premier League', teams: [{n:'Man City',c:'#6CAEE0'},{n:'Arsenal',c:'#EF0107'},{n:'Liverpool',c:'#C8102E'},{n:'Chelsea',c:'#034694'},{n:'Man Utd',c:'#DA291C'},{n:'Spurs',c:'#132257'},{n:'Newcastle',c:'#241F20'},{n:'Aston Villa',c:'#95BFE5'},{n:'West Ham',c:'#7A263A'},{n:'Brighton',c:'#0057B8'},{n:'Wolves',c:'#FDB913'},{n:'Brentford',c:'#E30613'},{n:'Fulham',c:'#CC0000'},{n:'Everton',c:'#003399'},{n:'Crystal Pal.',c:'#1B458F'},{n:'Nottm Forest',c:'#DD0000'},{n:'Burnley',c:'#6C1D45'},{n:'Sheffield Utd',c:'#EE2737'},{n:'Luton',c:'#F78F1E'},{n:'Bournemouth',c:'#E30613'}] },
+  laliga: { name: 'Virtual La Liga', teams: [{n:'Real Madrid',c:'#FFFFFF'},{n:'Barcelona',c:'#A50044'},{n:'Atletico',c:'#CB3524'},{n:'Sevilla',c:'#FFFFFF'},{n:'Villarreal',c:'#009DE0'},{n:'Real Betis',c:'#00954C'},{n:'Athletic',c:'#EE2523'},{n:'Valencia',c:'#FF7F00'},{n:'Real Socie.',c:'#0067B1'},{n:'Osasuna',c:'#BB0018'},{n:'Rayo Vallec.',c:'#EF3340'},{n:'Cadiz',c:'#F2C500'},{n:'Getafe',c:'#005999'},{n:'Alaves',c:'#006CB5'},{n:'Celta Vigo',c:'#73B3E7'},{n:'Granada',c:'#C53A1E'},{n:'Mallorca',c:'#D11D2F'},{n:'Las Palmas',c:'#FFFF00'},{n:'Almeria',c:'#FF0000'},{n:'Girona',c:'#CC0000'}] },
+  seriea: { name: 'Virtual Serie A', teams: [{n:'Inter Milan',c:'#0068A8'},{n:'Juventus',c:'#000000'},{n:'AC Milan',c:'#FB090B'},{n:'Napoli',c:'#12A0C3'},{n:'Roma',c:'#9B1121'},{n:'Lazio',c:'#87CEEB'},{n:'Atalanta',c:'#1E3B6E'},{n:'Fiorentina',c:'#432394'},{n:'Torino',c:'#8A1538'},{n:'Monza',c:'#CC0000'},{n:'Bologna',c:'#001F5B'},{n:'Genoa',c:'#CC0000'},{n:'Udinese',c:'#000000'},{n:'Lecce',c:'#E4001B'},{n:'Hellas V.',c:'#F6AF20'},{n:'Cagliari',c:'#CC0000'},{n:'Frosinone',c:'#FFC200'},{n:'Empoli',c:'#0072BA'},{n:'Salernitana',c:'#721422'},{n:'Sassuolo',c:'#00A650'}] },
+  bundesliga: { name: 'Virtual Bundesliga', teams: [{n:'Bayern',c:'#DC052D'},{n:'Dortmund',c:'#FDE100'},{n:'Leverkusen',c:'#E32221'},{n:'Leipzig',c:'#DD0741'},{n:'Freiburg',c:'#CC0000'},{n:'Wolfsburg',c:'#009B3A'},{n:'Frankfurt',c:'#E1000F'},{n:"M'Gladbach",c:'#000000'},{n:'Mainz',c:'#C3212A'},{n:'Hoffenheim',c:'#1961AB'},{n:'Augsburg',c:'#BA3733'},{n:'Stuttgart',c:'#E32221'},{n:'Bremen',c:'#009900'},{n:'Bochum',c:'#003366'},{n:'Darmstadt',c:'#003A6A'},{n:'Union Berlin',c:'#CC0000'},{n:'Köln',c:'#CC0000'},{n:'Schalke',c:'#004D9D'},{n:'Hansa',c:'#0065B3'},{n:'Nürnberg',c:'#A2001D'}] },
+  kpl: { name: 'Virtual KPL', teams: [{n:'Gor Mahia',c:'#009A3D'},{n:'AFC Leopards',c:'#003B6F'},{n:'Tusker FC',c:'#0070B8'},{n:'Police FC',c:'#003087'},{n:'Sofapaka',c:'#8B0000'},{n:'Ulinzi Stars',c:'#CC0000'},{n:'Western Stima',c:'#FF6600'},{n:'Kariobangi S.',c:'#00A000'},{n:'Wazito FC',c:'#D4AF37'},{n:'Bandari FC',c:'#00356B'},{n:'City Stars',c:'#C8102E'},{n:'Mount Kenya',c:'#CC0000'},{n:'Nzoia Utd',c:'#006400'},{n:'Vihiga',c:'#800080'},{n:'Bidco',c:'#FF4500'},{n:'Talanta',c:'#1E90FF'},{n:'Kenya Police',c:'#003366'},{n:'Mathare Utd',c:'#D4AF37'},{n:'Muranga',c:'#006400'},{n:'Posta Rangers',c:'#CC0000'}] },
+};
+
+const V_CYCLE = 90; 
+const V_BET_TIME = 75;
+const V_PLAY_TIME = 15;
+
+let vPhase = 'BETTING';
+let vTick = V_BET_TIME;
+let vMD = 1;
+let vState = {};
+
+function initVirtualState() {
+  for (const lg in V_LEAGUES) {
+    vState[lg] = { matches: [], standings: [], results: [] };
+    V_LEAGUES[lg].teams.forEach(t => {
+      vState[lg].standings.push({ name: t.n, color: t.c, p:0, w:0, d:0, l:0, gf:0, ga:0, pts:0, form:[] });
+    });
+  }
+}
+initVirtualState();
+
+function calcVOdds(hIdx, aIdx) {
+  const diff = (aIdx - hIdx) * 0.15;
+  const h = Math.max(1.25, Math.min(4.80, 1.85 + diff + (Math.random()*.6-.3)));
+  const a = Math.max(1.35, Math.min(5.90, 2.20 - diff + (Math.random()*.6-.3)));
+  const d = Math.max(2.70, Math.min(4.20, 3.30 + (Math.random()*.5-.25)));
+  return {
+    '1': +h.toFixed(2), 'X': +d.toFixed(2), '2': +a.toFixed(2),
+    gg: +(1.55 + Math.random()*.4).toFixed(2), ng: +(2.10 + Math.random()*.4).toFixed(2),
+    dc1x: +(1.20 + Math.random()*.3).toFixed(2), dc12: +(1.30 + Math.random()*.35).toFixed(2), dcx2: +(1.35 + Math.random()*.35).toFixed(2),
+    ov15: +(1.35 + Math.random()*.35).toFixed(2), un15: +(2.40 + Math.random()*.5).toFixed(2),
+    ov25: +(1.65 + Math.random()*.45).toFixed(2), un25: +(1.95 + Math.random()*.45).toFixed(2),
+    ov35: +(2.10 + Math.random()*.5).toFixed(2), un35: +(1.60 + Math.random()*.35).toFixed(2),
+  };
+}
+
+function generateVFixtures() {
+  for (const lg in V_LEAGUES) {
+    const teams = [...V_LEAGUES[lg].teams].sort(() => Math.random() - 0.5);
+    const matches = [];
+    for (let i = 0; i < 10; i++) {
+      const home = teams[i*2]; const away = teams[i*2+1];
+      const homeIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===home.n);
+      const awayIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===away.n);
+      matches.push({
+        id: `${lg}_${vMD}_${i}`, num: i+1, home: { name: home.n, color: home.c }, away: { name: away.n, color: away.c },
+        odds: calcVOdds(homeIdx, awayIdx), htScore: null, ftScore: null, hGoals: 0, aGoals: 0, result: null, liveScore: { h:0, a:0, min:0 }
+      });
+    }
+    vState[lg].matches = matches;
+  }
+}
+generateVFixtures();
+
+function simVGoals(hIdx, aIdx) {
+  const hStr = Math.max(0.1, 1 - hIdx * 0.04); const aStr = Math.max(0.1, 1 - aIdx * 0.04);
+  const hg = Math.round(Math.random() * 3 * hStr + Math.random() * 1.5);
+  const ag = Math.round(Math.random() * 3 * aStr + Math.random() * 1.5);
+  return [Math.min(hg,7), Math.min(ag,7)];
+}
+
+async function resolveVMatches() {
+  for (const lg in V_LEAGUES) {
+    vState[lg].matches.forEach(m => {
+      const hi = V_LEAGUES[lg].teams.findIndex(t => t.n === m.home.name);
+      const ai = V_LEAGUES[lg].teams.findIndex(t => t.n === m.away.name);
+      const [hg, ag] = simVGoals(hi, ai);
+      m.htScore = `${Math.floor(hg/1.5)} - ${Math.floor(ag/1.5)}`;
+      m.ftScore = `${hg} - ${ag}`;
+      m.hGoals = hg; m.aGoals = ag;
+      m.result = hg > ag ? '1' : ag > hg ? '2' : 'X';
+      
+      const h = vState[lg].standings.find(s=>s.name===m.home.name);
+      const a = vState[lg].standings.find(s=>s.name===m.away.name);
+      h.p++; a.p++; h.gf+=hg; h.ga+=ag; a.gf+=ag; a.ga+=hg;
+      if(m.result==='1'){ h.w++; h.pts+=3; h.form.push('W'); a.l++; a.form.push('L'); }
+      else if(m.result==='2'){ a.w++; a.pts+=3; a.form.push('W'); h.l++; h.form.push('L'); }
+      else { h.d++; a.d++; h.pts++; a.pts++; h.form.push('D'); a.form.push('D'); }
+    });
+    vState[lg].standings.sort((a,b) => b.pts-a.pts || (b.gf-b.ga)-(a.gf-a.ga) || b.gf-a.gf);
+    vState[lg].results.unshift({ md: vMD, matches: vState[lg].matches.map(m=>({...m})) });
+    if(vState[lg].results.length > 20) vState[lg].results.pop();
+  }
+
+  try {
+    const pendingBets = await VirtualBet.find({ status: 'PENDING', md: vMD });
+    for (const bet of pendingBets) {
+      let isWon = true;
+      for (const sel of bet.selections) {
+        const match = vState[sel.league]?.matches.find(m => m.id === sel.id);
+        if(!match) { isWon=false; break; }
+        
+        let wonSel = false;
+        switch(sel.market) {
+          case '1x2':  wonSel = (sel.pick === match.result); break;
+          case 'ggng': wonSel = sel.pick === 'gg' ? (match.hGoals>0 && match.aGoals>0) : !(match.hGoals>0 && match.aGoals>0); break;
+          case 'dc':
+            if(sel.pick==='dc1x') wonSel = match.result==='1'||match.result==='X';
+            if(sel.pick==='dc12') wonSel = match.result==='1'||match.result==='2';
+            if(sel.pick==='dcx2') wonSel = match.result==='X'||match.result==='2';
+            break;
+          case 'ov15': wonSel = sel.pick==='ov' ? (match.hGoals+match.aGoals)>1.5 : (match.hGoals+match.aGoals)<=1.5; break;
+          case 'ov25': wonSel = sel.pick==='ov' ? (match.hGoals+match.aGoals)>2.5 : (match.hGoals+match.aGoals)<=2.5; break;
+          case 'ov35': wonSel = sel.pick==='ov' ? (match.hGoals+match.aGoals)>3.5 : (match.hGoals+match.aGoals)<=3.5; break;
+        }
+        if(!wonSel) { isWon = false; break; }
+      }
+
+      bet.status = isWon ? 'WON' : 'LOST';
+      await bet.save();
+
+      if (isWon) {
+        await User.findByIdAndUpdate(bet.userId, { $inc: { balance: bet.potential, totalWins: bet.potential } });
+      }
+    }
+  } catch (err) { console.error("Virtual Bet Resolve Error", err); }
+}
+
+function updateVLiveScores() {
+  const elapsed = V_PLAY_TIME - vTick;
+  const progress = Math.min(1, elapsed / V_PLAY_TIME);
+  for (const lg in vState) {
+    vState[lg].matches.forEach(m => {
+      m.liveScore.h = Math.floor(m.hGoals * progress * 0.7);
+      m.liveScore.a = Math.floor(m.aGoals * progress * 0.7);
+      m.liveScore.min = Math.floor(90 * progress);
+    });
+  }
+}
+
+function vGameLoop() {
+  vTick--;
+  if (vPhase === 'BETTING' && vTick <= 0) {
+    vPhase = 'PLAYING';
+    vTick = V_PLAY_TIME;
+    resolveVMatches(); 
+  } 
+  else if (vPhase === 'PLAYING') {
+    updateVLiveScores();
+    if (vTick <= 0) {
+      vPhase = 'RESULTS';
+      vTick = 8;
+    }
+  } 
+  else if (vPhase === 'RESULTS' && vTick <= 0) {
+    vMD = vMD >= 38 ? 1 : vMD + 1;
+    vPhase = 'BETTING';
+    vTick = V_BET_TIME;
+    generateVFixtures();
+  }
+
+  io.emit('virtual_state', { phase: vPhase, tick: vTick, currentMD: vMD });
+  if (vTick % 2 === 0 || vPhase === 'PLAYING') { 
+    io.emit('virtual_data', vState);
+  }
+}
+setInterval(vGameLoop, 1000);
+
+/* ────────────────────────────────────────
+   AVIATOR ENGINE
 ──────────────────────────────────────── */
 let gameState       = 'WAITING';
 let currentMult     = 1.00;
@@ -1011,41 +1190,32 @@ function startRound() {
 }
 
 /* ────────────────────────────────────────
-   SOCKET.IO — PLAYER BETTING
-   (FIXED: ATOMIC PREVENTS RACE CONDITIONS)
+   SOCKET.IO (Handles BOTH Aviator & Virtuals)
 ──────────────────────────────────────── */
 io.on('connection', (socket) => {
-  socket.emit('game_state', {
-    state:      gameState,
-    roundId:    roundCounter,
-    currentMult,
-    history:    history.slice(0,15),
-  });
+  // Init Aviator
+  socket.emit('game_state', { state: gameState, roundId: roundCounter, currentMult, history: history.slice(0,15) });
+  
+  // Init Virtuals
+  socket.emit('virtual_state', { phase: vPhase, tick: vTick, currentMD: vMD });
+  socket.emit('virtual_data', vState);
 
+  /* AVIATOR: PLACE BET */
   socket.on('placeBet', async (data) => {
-    if (gameState !== 'WAITING')
-      return socket.emit('error', 'Wait for the next round to start.');
-
+    if (gameState !== 'WAITING') return socket.emit('error', 'Wait for the next round to start.');
     try {
       const identifier = data.username || data.phone;
       const amount     = parseFloat(data.amount);
 
-      if (!identifier || isNaN(amount) || amount <= 0)
-        return socket.emit('error', 'Invalid bet data.');
+      if (!identifier || isNaN(amount) || amount <= 0) return socket.emit('error', 'Invalid bet data.');
       if (amount < 10) return socket.emit('error', 'Minimum bet is KES 10.');
       if (amount > 50000) return socket.emit('error', 'Maximum bet is KES 50,000.');
 
-      // ATOMIC DEDUCTION
       const user = await User.findOneAndUpdate(
-          { 
-              $or: [{ phone: identifier }, { username: identifier }], 
-              status: 'active',
-              balance: { $gte: amount } 
-          },
+          { $or: [{ phone: identifier }, { username: identifier }], status: 'active', balance: { $gte: amount } },
           { $inc: { balance: -amount } },
           { new: true }
       );
-
       if (!user) return socket.emit('error', 'Insufficient balance or account inactive.');
 
       const betIndex = data.betIndex !== undefined ? parseInt(data.betIndex) : 0;
@@ -1054,73 +1224,72 @@ io.on('connection', (socket) => {
 
       socket.emit('betConfirmed', { newBalance: user.balance, betIndex });
       io.emit('liveBetAdded', { username: user.phone.slice(0,4)+'***', amount });
-    } catch (err) {
-      console.error('[placeBet]', err.message);
-      socket.emit('error', 'Bet failed. Please try again.');
-    }
+    } catch (err) { socket.emit('error', 'Bet failed. Please try again.'); }
   });
 
+  /* AVIATOR: CASH OUT */
   socket.on('cashOut', async (data) => {
     const betIndex = data?.betIndex !== undefined ? parseInt(data.betIndex) : 0;
     const betKey   = `${socket.id}_${betIndex}`;
 
-    if (gameState !== 'FLYING')
-      return socket.emit('error', 'You can only cash out during a flying round.');
-    if (!activeRoundBets[betKey])
-      return socket.emit('error', 'No active bet found.');
+    if (gameState !== 'FLYING') return socket.emit('error', 'You can only cash out during a flying round.');
+    if (!activeRoundBets[betKey]) return socket.emit('error', 'No active bet found.');
 
     try {
       const bet     = activeRoundBets[betKey];
       const multi   = parseFloat(currentMult.toFixed(4));
       const winnings= parseFloat((bet.amount * multi).toFixed(2));
 
-      // SYNCHRONOUS DELETE PREVENTS DOUBLE EXECUTION
       delete activeRoundBets[betKey];
 
-      // ATOMIC ADDITION
       const user = await User.findByIdAndUpdate(
           bet.userId, 
-          { 
-              $inc: { 
-                  balance: winnings, 
-                  totalBets: 1, 
-                  totalWins: winnings 
-              } 
-          }, 
+          { $inc: { balance: winnings, totalBets: 1, totalWins: winnings } }, 
           { new: true }
       );
 
       await Bet.create({
-        userId:            user._id,
-        username:          user.phone,
-        betAmount:         bet.amount,
-        cashoutMultiplier: multi,
-        winnings,
-        roundId:           String(roundCounter),
+        userId: user._id, username: user.phone, betAmount: bet.amount, cashoutMultiplier: multi, winnings, roundId: String(roundCounter),
       });
 
-      socket.emit('cashOutSuccess', {
-        betIndex,
-        multiplier: multi.toFixed(2),
-        winnings:   winnings.toFixed(2),
-        newBalance: user.balance.toFixed(2),
-      });
-
-      io.emit('playerCashedOut', {
-        username:   user.phone.slice(0,4)+'***',
-        multiplier: multi.toFixed(2),
-        amount:     winnings.toFixed(2),
-      });
-
-    } catch (err) {
-      console.error('[cashOut]', err.message);
-      socket.emit('error', 'Cashout failed. Please try again.');
-    }
+      socket.emit('cashOutSuccess', { betIndex, multiplier: multi.toFixed(2), winnings: winnings.toFixed(2), newBalance: user.balance.toFixed(2) });
+      io.emit('playerCashedOut', { username: user.phone.slice(0,4)+'***', multiplier: multi.toFixed(2), amount: winnings.toFixed(2) });
+    } catch (err) { socket.emit('error', 'Cashout failed. Please try again.'); }
   });
 
-  socket.on('disconnect', () => {
-    // Bets remain as losses if not cashed out — intentional
+  /* VIRTUALS: PLACE BET ACCUMULATOR */
+  socket.on('placeVirtualBet', async (data) => {
+    if (vPhase !== 'BETTING') return socket.emit('virtual_bet_error', 'Betting is closed for this round.');
+    try {
+      const stake = parseFloat(data.stake);
+      const selections = data.selections; 
+      if (isNaN(stake) || stake < 10 || !selections || !selections.length) return socket.emit('virtual_bet_error', 'Invalid bet.');
+
+      const user = await User.findOneAndUpdate(
+        { phone: data.phone, status: 'active', balance: { $gte: stake } }, 
+        { $inc: { balance: -stake, totalBets: 1 } }, 
+        { new: true }
+      );
+      if (!user) return socket.emit('virtual_bet_error', 'Insufficient balance.');
+
+      const totalOdds = selections.reduce((a, b) => a * b.odd, 1);
+      const potential = parseFloat((stake * totalOdds).toFixed(2));
+
+      await VirtualBet.create({
+        userId: user._id,
+        username: user.phone,
+        stake: stake,
+        potential: potential,
+        selections: selections,
+        md: vMD,
+        status: 'PENDING'
+      });
+
+      socket.emit('virtual_bet_confirmed', { newBalance: user.balance, message: `Bet placed! Potential win: KES ${potential}` });
+    } catch (e) { socket.emit('virtual_bet_error', 'Failed to place bet.'); }
   });
+
+  socket.on('disconnect', () => {});
 });
 
 /* ────────────────────────────────────────
@@ -1179,7 +1348,7 @@ process.on('unhandledRejection', (reason) => {
    START
 ──────────────────────────────────────── */
 server.listen(PORT, () => {
-  console.log(`🚀 UrbanBet server on port ${PORT}`);
+  console.log(`🚀 UrbanBet Server v3 running on port ${PORT}`);
   console.log(`🌍 APP_URL: ${APP_URL}`);
   console.log(`⚙️  House edge: ${HOUSE_EDGE * 100}%`);
   startRound();
