@@ -267,22 +267,7 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-const verifyAdmin = (req, res, next) => {
-  const secret = req.headers['x-admin-secret'];
-  if (secret === ADMIN_SECRET) {
-    req.adminId = 'header-auth';
-    return next();
-  }
-  const header = req.headers.authorization || '';
-  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      if (decoded.role === 'admin') { req.adminId = decoded.id; return next(); }
-    } catch {}
-  }
-  res.status(403).json({ error: 'Unauthorized.' });
-};
+
 
 const genReferralCode = (phone) =>
   'UB-' + phone.slice(-4) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
