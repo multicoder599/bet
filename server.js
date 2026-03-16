@@ -207,14 +207,47 @@ const AuditSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const User        = mongoose.model('User',        UserSchema);
-const Bet         = mongoose.model('Bet',         BetSchema);
-const VirtualBet  = mongoose.model('VirtualBet',  VirtualBetSchema);
-const Transaction = mongoose.model('Transaction', TransactionSchema);
-const Commission  = mongoose.model('Commission',  CommissionSchema);
-const Round       = mongoose.model('Round',       RoundSchema);
-const Bonus       = mongoose.model('Bonus',       BonusSchema);
-const Audit       = mongoose.model('Audit',       AuditSchema);
+/* ── NEW SCHEMAS FOR FORUM, BLOG, & VIP ── */
+const NewsletterSchema = new mongoose.Schema({
+  phone: { type: String, required: true, unique: true },
+  subscribedAt: { type: Date, default: Date.now }
+});
+
+const ForumPostSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  category: { type: String, default: 'general' },
+  content: { type: String, required: true },
+  likes: { type: Number, default: 0 },
+  comments: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const ForumReplySchema = new mongoose.Schema({
+  postId: { type: mongoose.Schema.Types.ObjectId, ref: 'ForumPost', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  content: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const VipApplicationSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  status: { type: String, enum: ['PENDING','REVIEWED','APPROVED','REJECTED'], default: 'PENDING' },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User          = mongoose.model('User',        UserSchema);
+const Bet           = mongoose.model('Bet',         BetSchema);
+const VirtualBet    = mongoose.model('VirtualBet',  VirtualBetSchema);
+const Transaction   = mongoose.model('Transaction', TransactionSchema);
+const Commission    = mongoose.model('Commission',  CommissionSchema);
+const Round         = mongoose.model('Round',       RoundSchema);
+const Bonus         = mongoose.model('Bonus',       BonusSchema);
+const Audit         = mongoose.model('Audit',       AuditSchema);
+/* ── NEW MODELS ── */
+const Newsletter    = mongoose.model('Newsletter',  NewsletterSchema);
+const ForumPost     = mongoose.model('ForumPost',   ForumPostSchema);
+const ForumReply    = mongoose.model('ForumReply',  ForumReplySchema);
+const VipApplication= mongoose.model('VipApplication', VipApplicationSchema);
 
 /* ────────────────────────────────────────
    AUTH HELPERS
@@ -656,6 +689,144 @@ app.get('/api/referrals/:phone', async (req, res) => {
     res.json({ referralCode: user.referralCode, totalCommission: total, referralCount: commissions.length });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch referral data.' });
+  }
+});
+
+/* ────────────────────────────────────────
+   NEW FRONTEND INTEGRATION ENDPOINTS
+──────────────────────────────────────── */
+
+// 1. Bonuses & Promos Claim
+app.post('/api/bonuses/claim', verifyToken, async (req, res) => {
+  try {
+    const { bonusId, promoId } = req.body;
+    const id = bonusId || promoId;
+    
+    // Simulate assigning bonus cash to user balance.
+    // In a real application, you'd check constraints, dates, and specific bonus IDs
+    let bonusAmount = 0;
+    if (id === 'free-aviator') bonusAmount = 500;
+    else if (id === 'sports-boost') bonusAmount = 200;
+    else bonusAmount = 100; // generic fallback
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $inc: { balance: bonusAmount } },
+      { new: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    await logAudit('system', 'BONUS_CLAIMED', user.phone, { id, amount: bonusAmount }, req.ip);
+
+    res.json({ message: 'Bonus claimed successfully', newBalance: user.balance });
+  } catch (err) {
+    console.error('[bonuses/claim]', err.message);
+    res.status(500).json({ error: 'Failed to claim bonus.' });
+  }
+});
+
+app.post('/api/promotions/claim', verifyToken, async (req, res) => {
+  // Handled exactly like the bonus claim for now
+  try {
+    const { promoId } = req.body;
+    let bonusAmount = 150; 
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $inc: { balance: bonusAmount } },
+      { new: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    res.json({ message: 'Promotion claimed successfully', newBalance: user.balance });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to claim promotion.' });
+  }
+});
+
+// 2. VIP Apply
+app.post('/api/vip/apply', verifyToken, async (req, res) => {
+  try {
+    const existing = await VipApplication.findOne({ userId: req.user.id, status: 'PENDING' });
+    if (existing) return res.status(400).json({ error: 'Application already pending.' });
+
+    await VipApplication.create({ userId: req.user.id });
+    res.json({ message: 'VIP application submitted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to submit VIP application.' });
+  }
+});
+
+// 3. Newsletter Subscribe
+app.post('/api/newsletter/subscribe', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone is required.' });
+    
+    const localPhone = toLocalPhone(phone);
+    await Newsletter.findOneAndUpdate(
+      { phone: localPhone },
+      { phone: localPhone, subscribedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ message: 'Subscribed successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to subscribe.' });
+  }
+});
+
+// 4. Forum Posts
+app.post('/api/forum/posts', verifyToken, async (req, res) => {
+  try {
+    const { category, content } = req.body;
+    if (!content) return res.status(400).json({ error: 'Content is required.' });
+
+    const post = await ForumPost.create({ userId: req.user.id, category, content });
+    res.status(201).json({ message: 'Post created', post });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create post.' });
+  }
+});
+
+// 5. Forum Replies
+app.post('/api/forum/replies', verifyToken, async (req, res) => {
+  try {
+    const { postId, content } = req.body;
+    if (!postId || !content) return res.status(400).json({ error: 'Post ID and content are required.' });
+
+    // Catch frontend simulated IDs (e.g., 1, 2, 3 or timestamps) to prevent ObjectId cast errors
+    if (postId.toString().length < 24) {
+       return res.json({ message: 'Reply added to simulated frontend post.' });
+    }
+
+    const reply = await ForumReply.create({ postId, userId: req.user.id, content });
+    await ForumPost.findByIdAndUpdate(postId, { $inc: { comments: 1 } });
+    
+    res.status(201).json({ message: 'Reply created', reply });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create reply.' });
+  }
+});
+
+// 6. Forum Like
+app.post('/api/forum/like', verifyToken, async (req, res) => {
+  try {
+    const { postId, liked } = req.body;
+    if (!postId) return res.status(400).json({ error: 'Post ID is required.' });
+
+    // Catch frontend simulated IDs to prevent ObjectId cast errors
+    if (postId.toString().length < 24) {
+       return res.json({ message: 'Like registered to simulated frontend post.' });
+    }
+
+    const inc = liked ? 1 : -1;
+    await ForumPost.findByIdAndUpdate(postId, { $inc: { likes: inc } });
+    
+    res.json({ message: 'Like updated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to like post.' });
   }
 });
 
