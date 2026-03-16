@@ -1170,7 +1170,7 @@ app.get('/api/admin/game-state', verifyAdmin, (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   VIRTUAL SPORTS ENGINE (Server-Side)
+   VIRTUAL SPORTS ENGINE (Server-Side - Multi Matchday)
 ──────────────────────────────────────── */
 const V_LEAGUES = {
   epl: { name: 'Virtual Premier League', teams: [{n:'Man City',c:'#6CAEE0'},{n:'Arsenal',c:'#EF0107'},{n:'Liverpool',c:'#C8102E'},{n:'Chelsea',c:'#034694'},{n:'Man Utd',c:'#DA291C'},{n:'Spurs',c:'#132257'},{n:'Newcastle',c:'#241F20'},{n:'Aston Villa',c:'#95BFE5'},{n:'West Ham',c:'#7A263A'},{n:'Brighton',c:'#0057B8'},{n:'Wolves',c:'#FDB913'},{n:'Brentford',c:'#E30613'},{n:'Fulham',c:'#CC0000'},{n:'Everton',c:'#003399'},{n:'Crystal Pal.',c:'#1B458F'},{n:'Nottm Forest',c:'#DD0000'},{n:'Burnley',c:'#6C1D45'},{n:'Sheffield Utd',c:'#EE2737'},{n:'Luton',c:'#F78F1E'},{n:'Bournemouth',c:'#E30613'}] },
@@ -1180,18 +1180,18 @@ const V_LEAGUES = {
   kpl: { name: 'Virtual KPL', teams: [{n:'Gor Mahia',c:'#009A3D'},{n:'AFC Leopards',c:'#003B6F'},{n:'Tusker FC',c:'#0070B8'},{n:'Police FC',c:'#003087'},{n:'Sofapaka',c:'#8B0000'},{n:'Ulinzi Stars',c:'#CC0000'},{n:'Western Stima',c:'#FF6600'},{n:'Kariobangi S.',c:'#00A000'},{n:'Wazito FC',c:'#D4AF37'},{n:'Bandari FC',c:'#00356B'},{n:'City Stars',c:'#C8102E'},{n:'Mount Kenya',c:'#CC0000'},{n:'Nzoia Utd',c:'#006400'},{n:'Vihiga',c:'#800080'},{n:'Bidco',c:'#FF4500'},{n:'Talanta',c:'#1E90FF'},{n:'Kenya Police',c:'#003366'},{n:'Mathare Utd',c:'#D4AF37'},{n:'Muranga',c:'#006400'},{n:'Posta Rangers',c:'#CC0000'}] },
 };
 
-const V_CYCLE = 90; 
 const V_BET_TIME = 75;
 const V_PLAY_TIME = 15;
 
 let vPhase = 'BETTING';
 let vTick = V_BET_TIME;
-let vMD = 1;
+let vMD = 1; // The current live/active matchday
 let vState = {};
 
 function initVirtualState() {
   for (const lg in V_LEAGUES) {
-    vState[lg] = { matches: [], standings: [], results: [] };
+    // We now store a dictionary of matchdays: { 1: [matches], 2: [matches], 3: [matches] }
+    vState[lg] = { matchdays: {}, standings: [], results: [] };
     V_LEAGUES[lg].teams.forEach(t => {
       vState[lg].standings.push({ name: t.n, color: t.c, p:0, w:0, d:0, l:0, gf:0, ga:0, pts:0, form:[] });
     });
@@ -1200,44 +1200,50 @@ function initVirtualState() {
 initVirtualState();
 
 function calcVOdds(hIdx, aIdx) {
-  // 1. Calculate raw probability based on team strength differences
   const diff = (aIdx - hIdx) * 0.04; 
-  let p1 = Math.max(0.15, Math.min(0.75, 0.45 + diff)); // Home Win
-  let p2 = Math.max(0.15, Math.min(0.75, 0.30 - diff)); // Away Win
-  let px = 1.0 - (p1 + p2); // Draw
-  
-  // 2. Apply House Overround (1.08 = 8% built-in casino profit margin)
+  let p1 = Math.max(0.15, Math.min(0.75, 0.45 + diff)); 
+  let p2 = Math.max(0.15, Math.min(0.75, 0.30 - diff)); 
+  let px = 1.0 - (p1 + p2); 
   const margin = 1.08; 
-  
   return {
-    '1': +(margin / p1).toFixed(2),
-    'X': +(margin / px).toFixed(2),
-    '2': +(margin / p2).toFixed(2),
-    gg: +(1.65 + Math.random()*.3).toFixed(2), 
-    ng: +(2.00 + Math.random()*.3).toFixed(2),
-    dc1x: +(margin / (p1+px)).toFixed(2), 
-    dc12: +(margin / (p1+p2)).toFixed(2), 
-    dcx2: +(margin / (p2+px)).toFixed(2),
-    ov15: 1.35, un15: 2.90,
-    ov25: 1.85, un25: 1.85,
-    ov35: 3.10, un35: 1.30,
+    '1': +(margin / p1).toFixed(2), 'X': +(margin / px).toFixed(2), '2': +(margin / p2).toFixed(2),
+    gg: +(1.65 + Math.random()*.3).toFixed(2), ng: +(2.00 + Math.random()*.3).toFixed(2),
+    dc1x: +(margin / (p1+px)).toFixed(2), dc12: +(margin / (p1+p2)).toFixed(2), dcx2: +(margin / (p2+px)).toFixed(2),
+    ov15: 1.35, un15: 2.90, ov25: 1.85, un25: 1.85, ov35: 3.10, un35: 1.30,
   };
 }
 
+// Generates fixtures for a specific matchday
+function generateMatchday(lg, mdTarget) {
+  const teams = [...V_LEAGUES[lg].teams].sort(() => Math.random() - 0.5);
+  const matches = [];
+  
+  // Calculate kickoff time based on the target MD
+  // Assuming a full cycle (Betting + Playing + Result) takes approx 90 seconds
+  const timeOffset = (mdTarget - vMD) * (V_BET_TIME + V_PLAY_TIME + 8) * 1000;
+  const kickoffDate = new Date(Date.now() + timeOffset + (vTick * 1000));
+  const kickoffStr = kickoffDate.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
+
+  for (let i = 0; i < 10; i++) {
+    const home = teams[i*2]; const away = teams[i*2+1];
+    const homeIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===home.n);
+    const awayIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===away.n);
+    matches.push({
+      id: `${lg}_${mdTarget}_${i}`, num: i+1, home: { name: home.n, color: home.c }, away: { name: away.n, color: away.c },
+      odds: calcVOdds(homeIdx, awayIdx), htScore: null, ftScore: null, hGoals: 0, aGoals: 0, result: null, liveScore: { h:0, a:0, min:0 },
+      time: kickoffStr // Add future time to match
+    });
+  }
+  return matches;
+}
+
+// Generate the current + next 2 matchdays
 function generateVFixtures() {
   for (const lg in V_LEAGUES) {
-    const teams = [...V_LEAGUES[lg].teams].sort(() => Math.random() - 0.5);
-    const matches = [];
-    for (let i = 0; i < 10; i++) {
-      const home = teams[i*2]; const away = teams[i*2+1];
-      const homeIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===home.n);
-      const awayIdx = V_LEAGUES[lg].teams.findIndex(t=>t.n===away.n);
-      matches.push({
-        id: `${lg}_${vMD}_${i}`, num: i+1, home: { name: home.n, color: home.c }, away: { name: away.n, color: away.c },
-        odds: calcVOdds(homeIdx, awayIdx), htScore: null, ftScore: null, hGoals: 0, aGoals: 0, result: null, liveScore: { h:0, a:0, min:0 }
-      });
-    }
-    vState[lg].matches = matches;
+    // If it's a completely new cycle, generate all 3
+    if (!vState[lg].matchdays[vMD]) vState[lg].matchdays[vMD] = generateMatchday(lg, vMD);
+    if (!vState[lg].matchdays[vMD + 1]) vState[lg].matchdays[vMD + 1] = generateMatchday(lg, vMD + 1);
+    if (!vState[lg].matchdays[vMD + 2]) vState[lg].matchdays[vMD + 2] = generateMatchday(lg, vMD + 2);
   }
 }
 generateVFixtures();
@@ -1251,7 +1257,11 @@ function simVGoals(hIdx, aIdx) {
 
 async function resolveVMatches() {
   for (const lg in V_LEAGUES) {
-    vState[lg].matches.forEach(m => {
+    // We only resolve the CURRENT matchday (vMD)
+    const currentMatches = vState[lg].matchdays[vMD];
+    if (!currentMatches) continue;
+
+    currentMatches.forEach(m => {
       const hi = V_LEAGUES[lg].teams.findIndex(t => t.n === m.home.name);
       const ai = V_LEAGUES[lg].teams.findIndex(t => t.n === m.away.name);
       const [hg, ag] = simVGoals(hi, ai);
@@ -1267,22 +1277,23 @@ async function resolveVMatches() {
       else if(m.result==='2'){ a.w++; a.pts+=3; a.form.push('W'); h.l++; h.form.push('L'); }
       else { h.d++; a.d++; h.pts++; a.pts++; h.form.push('D'); a.form.push('D'); }
     });
+    
     vState[lg].standings.sort((a,b) => b.pts-a.pts || (b.gf-b.ga)-(a.gf-a.ga) || b.gf-a.gf);
-    vState[lg].results.unshift({ md: vMD, matches: vState[lg].matches.map(m=>({...m})) });
+    vState[lg].results.unshift({ md: vMD, matches: currentMatches.map(m=>({...m})) });
     if(vState[lg].results.length > 20) vState[lg].results.pop();
   }
 
+  // Database Payout Settlement
   try {
     const pendingBets = await VirtualBet.find({ status: 'PENDING', md: vMD });
     for (const bet of pendingBets) {
       let isWon = true;
       for (const sel of bet.selections) {
-        const match = vState[sel.league]?.matches.find(m => m.id === sel.id);
+        // Look up the result from the current matchday
+        const match = vState[sel.league]?.matchdays[vMD]?.find(m => m.id === sel.id);
         if(!match) { isWon=false; break; }
         
-        // Save the final result to the ticket
         sel.outcome = match.result; 
-        
         let wonSel = false;
         switch(sel.market) {
           case '1x2':  wonSel = (sel.pick === match.result); break;
@@ -1300,7 +1311,6 @@ async function resolveVMatches() {
       }
 
       bet.status = isWon ? 'WON' : 'LOST';
-      // Tell Mongoose the array was modified so it saves the outcomes properly
       bet.markModified('selections'); 
       await bet.save();
 
@@ -1315,7 +1325,9 @@ function updateVLiveScores() {
   const elapsed = V_PLAY_TIME - vTick;
   const progress = Math.min(1, elapsed / V_PLAY_TIME);
   for (const lg in vState) {
-    vState[lg].matches.forEach(m => {
+    const currentMatches = vState[lg].matchdays[vMD];
+    if (!currentMatches) continue;
+    currentMatches.forEach(m => {
       m.liveScore.h = Math.floor(m.hGoals * progress * 0.7);
       m.liveScore.a = Math.floor(m.aGoals * progress * 0.7);
       m.liveScore.min = Math.floor(90 * progress);
@@ -1338,12 +1350,19 @@ function vGameLoop() {
     }
   } 
   else if (vPhase === 'RESULTS' && vTick <= 0) {
+    // Clean up the old matchday memory
+    for (const lg in V_LEAGUES) { delete vState[lg].matchdays[vMD]; }
+    
+    // Increment Matchday
     vMD = vMD >= 38 ? 1 : vMD + 1;
     vPhase = 'BETTING';
     vTick = V_BET_TIME;
+    
+    // Generate the new "Future" matchday
     generateVFixtures();
   }
 
+  // The state payload now includes everything needed for the UI
   io.emit('virtual_state', { phase: vPhase, tick: vTick, currentMD: vMD });
   if (vTick % 2 === 0 || vPhase === 'PLAYING') { 
     io.emit('virtual_data', vState);
@@ -1351,6 +1370,10 @@ function vGameLoop() {
 }
 setInterval(vGameLoop, 1000);
 
+/* ────────────────────────────────────────
+   UPDATE PLACE BET LISTENER
+──────────────────────────────────────── */
+// In your io.on('connection') block, ensure placeVirtualBet trusts the frontend's MD target
 /* ────────────────────────────────────────
    AVIATOR ENGINE
 ──────────────────────────────────────── */
