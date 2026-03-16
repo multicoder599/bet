@@ -146,7 +146,7 @@ const VirtualBetSchema = new mongoose.Schema({
   username:    String,
   stake:       { type: Number, required: true, min: 0 },
   potential:   { type: Number, required: true },
-  selections:  [{ id: String, league: String, match: String, pick: String, odd: Number, market: String }],
+  selections:  [{ id: String, league: String, match: String, pick: String, odd: Number, market: String, outcome: String }],
   md:          { type: Number, index: true },
   status:      { type: String, enum: ['PENDING','WON','LOST'], default: 'PENDING', index: true },
   createdAt:   { type: Date, default: Date.now },
@@ -1280,6 +1280,9 @@ async function resolveVMatches() {
         const match = vState[sel.league]?.matches.find(m => m.id === sel.id);
         if(!match) { isWon=false; break; }
         
+        // Save the final result to the ticket
+        sel.outcome = match.result; 
+        
         let wonSel = false;
         switch(sel.market) {
           case '1x2':  wonSel = (sel.pick === match.result); break;
@@ -1297,6 +1300,8 @@ async function resolveVMatches() {
       }
 
       bet.status = isWon ? 'WON' : 'LOST';
+      // Tell Mongoose the array was modified so it saves the outcomes properly
+      bet.markModified('selections'); 
       await bet.save();
 
       if (isWon) {
