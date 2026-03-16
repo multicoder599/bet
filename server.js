@@ -831,7 +831,107 @@ app.post('/api/forum/like', verifyToken, async (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   ADMIN API
+   ADMIN API & 2FA AUTHENTICATION
+──────────────────────────────────────── */
+
+// In-memory store for pending 2FA requests.
+// Key: IP Address, Value: { code: string, expires: number }
+const admin2faStore = new Map();
+
+app.post('/api/admin/auth/init', async (req, res) => {
+  try {
+    const { secret } = req.body;
+    const ip = req.ip || req.connection.remoteAddress;
+
+    // 1. Verify the master secret
+    if (secret !== ADMIN_SECRET) {
+      return res.status(401).json({ error: 'Invalid admin secret.' });
+    }
+
+    // 2. Generate a 6-digit 2FA code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // 3. Store the code with a 5-minute expiration
+    admin2faStore.set(ip, {
+      code,
+      expires: Date.now() + 5 * 60 * 1000
+    });
+
+    // 4. Send the code via Telegram
+    await tgSend(`🔐 *ADMIN LOGIN ATTEMPT*\nIP: \`${ip}\`\n\nYour 2FA Code is: *${code}*\n\n_Expires in 5 minutes._`);
+
+    res.json({ message: '2FA code sent via Telegram.' });
+  } catch (err) {
+    console.error('[Admin Auth Init]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+app.post('/api/admin/auth/verify', async (req, res) => {
+  try {
+    const { secret, code } = req.body;
+    const ip = req.ip || req.connection.remoteAddress;
+
+    // 1. Verify the master secret again just to be safe
+    if (secret !== ADMIN_SECRET) {
+      return res.status(401).json({ error: 'Invalid admin secret.' });
+    }
+
+    // 2. Check the 2FA store
+    const storedData = admin2faStore.get(ip);
+    if (!storedData) {
+      return res.status(400).json({ error: 'No pending 2FA request or code expired.' });
+    }
+
+    if (Date.now() > storedData.expires) {
+      admin2faStore.delete(ip);
+      return res.status(400).json({ error: '2FA code has expired. Try again.' });
+    }
+
+    if (storedData.code !== code) {
+      return res.status(401).json({ error: 'Invalid 2FA code.' });
+    }
+
+    // 3. Code matches! Clear it and issue a secure Admin JWT
+    admin2faStore.delete(ip);
+    
+    // Issue a special admin token (valid for 12 hours)
+    const adminToken = jwt.sign({ role: 'admin', ip: ip }, JWT_SECRET, { expiresIn: '12h' });
+
+    await logAudit('system', 'ADMIN_LOGIN_SUCCESS', 'Dashboard', {}, ip);
+    await tgSend(`✅ *ADMIN LOGIN SUCCESSFUL*\nIP: \`${ip}\``);
+
+    res.json({ token: adminToken, message: 'Authentication successful.' });
+  } catch (err) {
+    console.error('[Admin Auth Verify]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Update the verifyAdmin middleware to check for the JWT instead of the raw secret
+const verifyAdmin = (req, res, next) => {
+  const header = req.headers.authorization || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized. No token provided.' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden. Admin access required.' });
+    }
+    req.adminId = decoded.ip || 'admin';
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
+  }
+};
+
+
+/* ────────────────────────────────────────
+   EXISTING ADMIN API ROUTES
 ──────────────────────────────────────── */
 
 app.get('/api/admin/users', verifyAdmin, async (req, res) => {
