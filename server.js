@@ -1185,12 +1185,11 @@ const V_PLAY_TIME = 15;
 
 let vPhase = 'BETTING';
 let vTick = V_BET_TIME;
-let vMD = 1; // The current live/active matchday
+let vMD = 1;
 let vState = {};
 
 function initVirtualState() {
   for (const lg in V_LEAGUES) {
-    // We now store a dictionary of matchdays: { 1: [matches], 2: [matches], 3: [matches] }
     vState[lg] = { matchdays: {}, standings: [], results: [] };
     V_LEAGUES[lg].teams.forEach(t => {
       vState[lg].standings.push({ name: t.n, color: t.c, p:0, w:0, d:0, l:0, gf:0, ga:0, pts:0, form:[] });
@@ -1213,13 +1212,9 @@ function calcVOdds(hIdx, aIdx) {
   };
 }
 
-// Generates fixtures for a specific matchday
 function generateMatchday(lg, mdTarget) {
   const teams = [...V_LEAGUES[lg].teams].sort(() => Math.random() - 0.5);
   const matches = [];
-  
-  // Calculate kickoff time based on the target MD
-  // Assuming a full cycle (Betting + Playing + Result) takes approx 90 seconds
   const timeOffset = (mdTarget - vMD) * (V_BET_TIME + V_PLAY_TIME + 8) * 1000;
   const kickoffDate = new Date(Date.now() + timeOffset + (vTick * 1000));
   const kickoffStr = kickoffDate.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
@@ -1231,16 +1226,14 @@ function generateMatchday(lg, mdTarget) {
     matches.push({
       id: `${lg}_${mdTarget}_${i}`, num: i+1, home: { name: home.n, color: home.c }, away: { name: away.n, color: away.c },
       odds: calcVOdds(homeIdx, awayIdx), htScore: null, ftScore: null, hGoals: 0, aGoals: 0, result: null, liveScore: { h:0, a:0, min:0 },
-      time: kickoffStr // Add future time to match
+      time: kickoffStr 
     });
   }
   return matches;
 }
 
-// Generate the current + next 2 matchdays
 function generateVFixtures() {
   for (const lg in V_LEAGUES) {
-    // If it's a completely new cycle, generate all 3
     if (!vState[lg].matchdays[vMD]) vState[lg].matchdays[vMD] = generateMatchday(lg, vMD);
     if (!vState[lg].matchdays[vMD + 1]) vState[lg].matchdays[vMD + 1] = generateMatchday(lg, vMD + 1);
     if (!vState[lg].matchdays[vMD + 2]) vState[lg].matchdays[vMD + 2] = generateMatchday(lg, vMD + 2);
@@ -1257,7 +1250,6 @@ function simVGoals(hIdx, aIdx) {
 
 async function resolveVMatches() {
   for (const lg in V_LEAGUES) {
-    // We only resolve the CURRENT matchday (vMD)
     const currentMatches = vState[lg].matchdays[vMD];
     if (!currentMatches) continue;
 
@@ -1283,13 +1275,11 @@ async function resolveVMatches() {
     if(vState[lg].results.length > 20) vState[lg].results.pop();
   }
 
-  // Database Payout Settlement
   try {
     const pendingBets = await VirtualBet.find({ status: 'PENDING', md: vMD });
     for (const bet of pendingBets) {
       let isWon = true;
       for (const sel of bet.selections) {
-        // Look up the result from the current matchday
         const match = vState[sel.league]?.matchdays[vMD]?.find(m => m.id === sel.id);
         if(!match) { isWon=false; break; }
         
@@ -1350,19 +1340,13 @@ function vGameLoop() {
     }
   } 
   else if (vPhase === 'RESULTS' && vTick <= 0) {
-    // Clean up the old matchday memory
     for (const lg in V_LEAGUES) { delete vState[lg].matchdays[vMD]; }
-    
-    // Increment Matchday
     vMD = vMD >= 38 ? 1 : vMD + 1;
     vPhase = 'BETTING';
     vTick = V_BET_TIME;
-    
-    // Generate the new "Future" matchday
     generateVFixtures();
   }
 
-  // The state payload now includes everything needed for the UI
   io.emit('virtual_state', { phase: vPhase, tick: vTick, currentMD: vMD });
   if (vTick % 2 === 0 || vPhase === 'PLAYING') { 
     io.emit('virtual_data', vState);
@@ -1370,10 +1354,6 @@ function vGameLoop() {
 }
 setInterval(vGameLoop, 1000);
 
-/* ────────────────────────────────────────
-   UPDATE PLACE BET LISTENER
-──────────────────────────────────────── */
-// In your io.on('connection') block, ensure placeVirtualBet trusts the frontend's MD target
 /* ────────────────────────────────────────
    AVIATOR ENGINE
 ──────────────────────────────────────── */
@@ -1536,15 +1516,19 @@ io.on('connection', (socket) => {
 
   /* VIRTUALS: PLACE BET ACCUMULATOR */
   socket.on('placeVirtualBet', async (data) => {
-    if (vPhase !== 'BETTING') return socket.emit('virtual_bet_error', 'Betting is closed for this round.');
     try {
       const stake = parseFloat(data.stake);
       const selections = data.selections; 
       
-      // Strict backend validation for KES 10 minimum and Max 10 games
       if (isNaN(stake) || stake < 10) return socket.emit('virtual_bet_error', 'Minimum stake is KES 10.');
       if (!selections || selections.length === 0) return socket.emit('virtual_bet_error', 'Invalid bet. No selections found.');
       if (selections.length > 10) return socket.emit('virtual_bet_error', 'Maximum 10 games allowed per ticket.');
+
+      const targetMD = parseInt(selections[0].md) || vMD;
+
+      if (targetMD === vMD && vPhase !== 'BETTING') {
+         return socket.emit('virtual_bet_error', 'Betting is closed for this round.');
+      }
 
       const user = await User.findOneAndUpdate(
         { phone: data.phone, status: 'active', balance: { $gte: stake } }, 
@@ -1563,7 +1547,7 @@ io.on('connection', (socket) => {
         stake: stake,
         potential: potential,
         selections: selections,
-        md: vMD,
+        md: targetMD, 
         status: 'PENDING'
       });
 
