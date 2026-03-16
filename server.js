@@ -252,83 +252,48 @@ const VipApplication= mongoose.model('VipApplication', VipApplicationSchema);
 /* ────────────────────────────────────────
    AUTH HELPERS
 ──────────────────────────────────────── */
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-
-
-
-/* ────────────────────────────────────────
-   AUTH HELPERS
-   ──────────────────────────────────────── */
-
-// 1. Generate Token (includes role for admin checks)
 const genToken = (user) =>
-  jwt.sign(
-    { id: user._id, phone: user.phone, role: user.role }, 
-    JWT_SECRET, 
-    { expiresIn: '7d' }
-  );
+  jwt.sign({ id: user._id, phone: user.phone, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
-// 2. Generic User Verification
 const verifyToken = (req, res, next) => {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'No token provided.' });
-
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (err) {
+  } catch {
     res.status(401).json({ error: 'Invalid or expired token.' });
   }
 };
-
-// 3. Updated Admin Verification (JWT-only, no raw secret)
+// Update the verifyAdmin middleware to check for the JWT instead of the raw secret
 const verifyAdmin = (req, res, next) => {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized. No token provided.' });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-
     if (decoded.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden. Admin access required.' });
     }
-
-    // Attach admin details to request
-    req.adminId = decoded.id || 'admin'; 
+    req.adminId = decoded.ip || 'admin';
     next();
   } catch (err) {
     res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
   }
 };
 
-// 4. Utilities
+
 const genReferralCode = (phone) =>
   'UB-' + phone.slice(-4) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
 
 async function logAudit(adminId, action, target, meta = {}, ip = '') {
-  try { 
-    // Assumes Audit model is imported in this file
-    await Audit.create({ adminId, action, target, meta, ip }); 
-  } catch (err) {
-    console.error("Audit Log Error:", err);
-  }
+  try { await Audit.create({ adminId, action, target, meta, ip }); } catch {}
 }
-
-// Exporting helpers for use in routes
-module.exports = {
-  genToken,
-  verifyToken,
-  verifyAdmin,
-  genReferralCode,
-  logAudit
-};
 
 /* ────────────────────────────────────────
    INPUT VALIDATION HELPERS
@@ -946,6 +911,7 @@ app.post('/api/admin/auth/verify', async (req, res) => {
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
+
 
 
 
