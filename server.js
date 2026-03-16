@@ -41,8 +41,8 @@ const ADMIN_SECRET  = process.env.ADMIN_SECRET || 'key1905';
 const APP_URL       = process.env.APP_URL      || 'https://bet-6jn6.onrender.com';
 const TG_TOKEN      = process.env.TELEGRAM_BOT_TOKEN || '';
 const TG_CHAT_ID    = process.env.TELEGRAM_CHAT_ID   || '';
-const MEGAPAY_KEY   = process.env.MEGAPAY_API_KEY     || 'MGPY26G5iWPw';
-const MEGAPAY_EMAIL = process.env.MEGAPAY_EMAIL       || 'kanyingiwaitara@gmail.com';
+const MEGAPAY_KEY   = process.env.MEGAPAY_API_KEY      || 'MGPY26G5iWPw';
+const MEGAPAY_EMAIL = process.env.MEGAPAY_EMAIL        || 'kanyingiwaitara@gmail.com';
 const MIN_DEPOSIT   = parseInt(process.env.MIN_DEPOSIT)    || 50;
 const MIN_WITHDRAW  = parseInt(process.env.MIN_WITHDRAW)   || 100;
 const MAX_WITHDRAW  = parseInt(process.env.MAX_WITHDRAW)   || 150000;
@@ -243,7 +243,6 @@ const Commission    = mongoose.model('Commission',  CommissionSchema);
 const Round         = mongoose.model('Round',       RoundSchema);
 const Bonus         = mongoose.model('Bonus',       BonusSchema);
 const Audit         = mongoose.model('Audit',       AuditSchema);
-/* ── NEW MODELS ── */
 const Newsletter    = mongoose.model('Newsletter',  NewsletterSchema);
 const ForumPost     = mongoose.model('ForumPost',   ForumPostSchema);
 const ForumReply    = mongoose.model('ForumReply',  ForumReplySchema);
@@ -266,7 +265,7 @@ const verifyToken = (req, res, next) => {
     res.status(401).json({ error: 'Invalid or expired token.' });
   }
 };
-// Update the verifyAdmin middleware to check for the JWT instead of the raw secret
+
 const verifyAdmin = (req, res, next) => {
   const header = req.headers.authorization || '';
   const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -286,7 +285,6 @@ const verifyAdmin = (req, res, next) => {
     res.status(401).json({ error: 'Unauthorized. Invalid or expired token.' });
   }
 };
-
 
 const genReferralCode = (phone) =>
   'UB-' + phone.slice(-4) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -317,7 +315,6 @@ const toLocalPhone = (p) => {
    AUTH ROUTES
 ──────────────────────────────────────── */
 
-/* POST /api/register */
 app.post('/api/register', async (req, res) => {
   try {
     const { username, phone, password, email, referralCode } = req.body;
@@ -362,7 +359,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-/* POST /api/login (Supports both Phone and Text Username) */
 app.post('/api/login', async (req, res) => {
   try {
     const identifier = req.body.username || req.body.phone || '';
@@ -371,7 +367,6 @@ app.post('/api/login', async (req, res) => {
     if (!identifier || !password)
       return res.status(400).json({ error: 'Username/Phone and password required.' });
 
-    // Detect if input is a phone number (digits/plus) or a text username
     const isPhone = /^[0-9+\s]+$/.test(identifier);
     const query = isPhone 
         ? { phone: toLocalPhone(identifier) } 
@@ -408,7 +403,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-/* GET /api/me — refresh current user data */
 app.get('/api/me', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -419,7 +413,6 @@ app.get('/api/me', verifyToken, async (req, res) => {
   }
 });
 
-/* PUT /api/me — update profile */
 app.put('/api/me', verifyToken, async (req, res) => {
   try {
     const { username, email } = req.body;
@@ -629,8 +622,15 @@ app.get('/api/history/:username', async (req, res) => {
   try {
     const user = await User.findOne({ $or: [{ phone: req.params.username }, { username: req.params.username }] });
     if (!user) return res.json([]);
-    const bets = await Bet.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50);
-    res.json(bets);
+    
+    // Fetch BOTH Aviator Bets and Virtual Bets
+    const aviatorBets = await Bet.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50).lean();
+    const virtualBets = await VirtualBet.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50).lean();
+    
+    // Combine them and sort by the newest bets first
+    const allBets = [...aviatorBets, ...virtualBets].sort((a, b) => b.createdAt - a.createdAt);
+    
+    res.json(allBets);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch history.' });
   }
@@ -707,7 +707,6 @@ app.post('/api/bonuses/claim', verifyToken, async (req, res) => {
     const id = bonusId || promoId;
     
     // Simulate assigning bonus cash to user balance.
-    // In a real application, you'd check constraints, dates, and specific bonus IDs
     let bonusAmount = 0;
     if (id === 'free-aviator') bonusAmount = 500;
     else if (id === 'sports-boost') bonusAmount = 200;
@@ -731,7 +730,6 @@ app.post('/api/bonuses/claim', verifyToken, async (req, res) => {
 });
 
 app.post('/api/promotions/claim', verifyToken, async (req, res) => {
-  // Handled exactly like the bonus claim for now
   try {
     const { promoId } = req.body;
     let bonusAmount = 150; 
@@ -800,7 +798,6 @@ app.post('/api/forum/replies', verifyToken, async (req, res) => {
     const { postId, content } = req.body;
     if (!postId || !content) return res.status(400).json({ error: 'Post ID and content are required.' });
 
-    // Catch frontend simulated IDs (e.g., 1, 2, 3 or timestamps) to prevent ObjectId cast errors
     if (postId.toString().length < 24) {
        return res.json({ message: 'Reply added to simulated frontend post.' });
     }
@@ -820,7 +817,6 @@ app.post('/api/forum/like', verifyToken, async (req, res) => {
     const { postId, liked } = req.body;
     if (!postId) return res.status(400).json({ error: 'Post ID is required.' });
 
-    // Catch frontend simulated IDs to prevent ObjectId cast errors
     if (postId.toString().length < 24) {
        return res.json({ message: 'Like registered to simulated frontend post.' });
     }
@@ -838,8 +834,6 @@ app.post('/api/forum/like', verifyToken, async (req, res) => {
    ADMIN API & 2FA AUTHENTICATION
 ──────────────────────────────────────── */
 
-// In-memory store for pending 2FA requests.
-// Key: IP Address, Value: { code: string, expires: number }
 const admin2faStore = new Map();
 
 app.post('/api/admin/auth/init', async (req, res) => {
@@ -847,21 +841,17 @@ app.post('/api/admin/auth/init', async (req, res) => {
     const { secret } = req.body;
     const ip = req.ip || req.connection.remoteAddress;
 
-    // 1. Verify the master secret
     if (secret !== ADMIN_SECRET) {
       return res.status(401).json({ error: 'Invalid admin secret.' });
     }
 
-    // 2. Generate a 6-digit 2FA code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // 3. Store the code with a 5-minute expiration
     admin2faStore.set(ip, {
       code,
       expires: Date.now() + 5 * 60 * 1000
     });
 
-    // 4. Send the code via Telegram
     await tgSend(`🔐 *ADMIN LOGIN ATTEMPT*\nIP: \`${ip}\`\n\nYour 2FA Code is: *${code}*\n\n_Expires in 5 minutes._`);
 
     res.json({ message: '2FA code sent via Telegram.' });
@@ -876,12 +866,10 @@ app.post('/api/admin/auth/verify', async (req, res) => {
     const { secret, code } = req.body;
     const ip = req.ip || req.connection.remoteAddress;
 
-    // 1. Verify the master secret again just to be safe
     if (secret !== ADMIN_SECRET) {
       return res.status(401).json({ error: 'Invalid admin secret.' });
     }
 
-    // 2. Check the 2FA store
     const storedData = admin2faStore.get(ip);
     if (!storedData) {
       return res.status(400).json({ error: 'No pending 2FA request or code expired.' });
@@ -896,10 +884,8 @@ app.post('/api/admin/auth/verify', async (req, res) => {
       return res.status(401).json({ error: 'Invalid 2FA code.' });
     }
 
-    // 3. Code matches! Clear it and issue a secure Admin JWT
     admin2faStore.delete(ip);
     
-    // Issue a special admin token (valid for 12 hours)
     const adminToken = jwt.sign({ role: 'admin', ip: ip }, JWT_SECRET, { expiresIn: '12h' });
 
     await logAudit('system', 'ADMIN_LOGIN_SUCCESS', 'Dashboard', {}, ip);
@@ -911,9 +897,6 @@ app.post('/api/admin/auth/verify', async (req, res) => {
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
-
-
-
 
 /* ────────────────────────────────────────
    EXISTING ADMIN API ROUTES
@@ -1217,17 +1200,27 @@ function initVirtualState() {
 initVirtualState();
 
 function calcVOdds(hIdx, aIdx) {
-  const diff = (aIdx - hIdx) * 0.15;
-  const h = Math.max(1.25, Math.min(4.80, 1.85 + diff + (Math.random()*.6-.3)));
-  const a = Math.max(1.35, Math.min(5.90, 2.20 - diff + (Math.random()*.6-.3)));
-  const d = Math.max(2.70, Math.min(4.20, 3.30 + (Math.random()*.5-.25)));
+  // 1. Calculate raw probability based on team strength differences
+  const diff = (aIdx - hIdx) * 0.04; 
+  let p1 = Math.max(0.15, Math.min(0.75, 0.45 + diff)); // Home Win
+  let p2 = Math.max(0.15, Math.min(0.75, 0.30 - diff)); // Away Win
+  let px = 1.0 - (p1 + p2); // Draw
+  
+  // 2. Apply House Overround (1.08 = 8% built-in casino profit margin)
+  const margin = 1.08; 
+  
   return {
-    '1': +h.toFixed(2), 'X': +d.toFixed(2), '2': +a.toFixed(2),
-    gg: +(1.55 + Math.random()*.4).toFixed(2), ng: +(2.10 + Math.random()*.4).toFixed(2),
-    dc1x: +(1.20 + Math.random()*.3).toFixed(2), dc12: +(1.30 + Math.random()*.35).toFixed(2), dcx2: +(1.35 + Math.random()*.35).toFixed(2),
-    ov15: +(1.35 + Math.random()*.35).toFixed(2), un15: +(2.40 + Math.random()*.5).toFixed(2),
-    ov25: +(1.65 + Math.random()*.45).toFixed(2), un25: +(1.95 + Math.random()*.45).toFixed(2),
-    ov35: +(2.10 + Math.random()*.5).toFixed(2), un35: +(1.60 + Math.random()*.35).toFixed(2),
+    '1': +(margin / p1).toFixed(2),
+    'X': +(margin / px).toFixed(2),
+    '2': +(margin / p2).toFixed(2),
+    gg: +(1.65 + Math.random()*.3).toFixed(2), 
+    ng: +(2.00 + Math.random()*.3).toFixed(2),
+    dc1x: +(margin / (p1+px)).toFixed(2), 
+    dc12: +(margin / (p1+p2)).toFixed(2), 
+    dcx2: +(margin / (p2+px)).toFixed(2),
+    ov15: 1.35, un15: 2.90,
+    ov25: 1.85, un25: 1.85,
+    ov35: 3.10, un35: 1.30,
   };
 }
 
@@ -1492,9 +1485,9 @@ io.on('connection', (socket) => {
     if (!activeRoundBets[betKey]) return socket.emit('error', 'No active bet found.');
 
     try {
-      const bet     = activeRoundBets[betKey];
-      const multi   = parseFloat(currentMult.toFixed(4));
-      const winnings= parseFloat((bet.amount * multi).toFixed(2));
+      const bet      = activeRoundBets[betKey];
+      const multi    = parseFloat(currentMult.toFixed(4));
+      const winnings = parseFloat((bet.amount * multi).toFixed(2));
 
       delete activeRoundBets[betKey];
 
@@ -1519,13 +1512,18 @@ io.on('connection', (socket) => {
     try {
       const stake = parseFloat(data.stake);
       const selections = data.selections; 
-      if (isNaN(stake) || stake < 10 || !selections || !selections.length) return socket.emit('virtual_bet_error', 'Invalid bet.');
+      
+      // Strict backend validation for KES 10 minimum and Max 10 games
+      if (isNaN(stake) || stake < 10) return socket.emit('virtual_bet_error', 'Minimum stake is KES 10.');
+      if (!selections || selections.length === 0) return socket.emit('virtual_bet_error', 'Invalid bet. No selections found.');
+      if (selections.length > 10) return socket.emit('virtual_bet_error', 'Maximum 10 games allowed per ticket.');
 
       const user = await User.findOneAndUpdate(
         { phone: data.phone, status: 'active', balance: { $gte: stake } }, 
         { $inc: { balance: -stake, totalBets: 1 } }, 
         { new: true }
       );
+      
       if (!user) return socket.emit('virtual_bet_error', 'Insufficient balance.');
 
       const totalOdds = selections.reduce((a, b) => a * b.odd, 1);
