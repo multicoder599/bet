@@ -2,8 +2,7 @@
  * ═══════════════════════════════════════════════════════════
  * URBANBET — PRODUCTION SERVER  v3.0
  * Node.js + Express + Socket.IO + MongoDB
- * (Protected with Atomic Transactions & Regex Login)
- * Includes Aviator Engine & Virtual Sports Engine
+ * Includes Aviator Engine, Virtual Sports, & Trading Terminal
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -116,7 +115,7 @@ const UserSchema = new mongoose.Schema({
   username:     { type: String, required: true, trim: true },
   password:     { type: String, required: true },
   email:        { type: String, trim: true, lowercase: true, default: '' },
-  avatar:       { type: String, default: '1' }, // <--- ADD THIS LINE
+  avatar:       { type: String, default: '1' }, 
   balance:      { type: Number, default: 0, min: 0 },
   totalDeposit: { type: Number, default: 0 },
   totalBets:    { type: Number, default: 0 },
@@ -150,9 +149,10 @@ const VirtualBetSchema = new mongoose.Schema({
   selections:  [{ id: String, league: String, match: String, pick: String, odd: Number, market: String, outcome: String }],
   md:          { type: Number, index: true },
   status:      { type: String, enum: ['PENDING','WON','LOST'], default: 'PENDING', index: true },
-  source:      { type: String, default: 'virtuals' }, 
+  source:      { type: String, default: 'virtuals' },
   createdAt:   { type: Date, default: Date.now },
 });
+
 const TradeSchema = new mongoose.Schema({
   userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   asset:      String,
@@ -165,8 +165,6 @@ const TradeSchema = new mongoose.Schema({
   payout:     { type: Number, default: 0 },
   createdAt:  { type: Date, default: Date.now }
 });
-
-const Trade = mongoose.model('Trade', TradeSchema);
 
 const TransactionSchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -223,7 +221,6 @@ const AuditSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-/* ── NEW SCHEMAS FOR FORUM, BLOG, & VIP ── */
 const NewsletterSchema = new mongoose.Schema({
   phone: { type: String, required: true, unique: true },
   subscribedAt: { type: Date, default: Date.now }
@@ -254,6 +251,7 @@ const VipApplicationSchema = new mongoose.Schema({
 const User          = mongoose.model('User',        UserSchema);
 const Bet           = mongoose.model('Bet',         BetSchema);
 const VirtualBet    = mongoose.model('VirtualBet',  VirtualBetSchema);
+const Trade         = mongoose.model('Trade',       TradeSchema);
 const Transaction   = mongoose.model('Transaction', TransactionSchema);
 const Commission    = mongoose.model('Commission',  CommissionSchema);
 const Round         = mongoose.model('Round',       RoundSchema);
@@ -285,7 +283,6 @@ const verifyToken = (req, res, next) => {
 const verifyAdmin = (req, res, next) => {
   const header = req.headers.authorization || '';
   const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
-  
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized. No token provided.' });
   }
@@ -309,9 +306,6 @@ async function logAudit(adminId, action, target, meta = {}, ip = '') {
   try { await Audit.create({ adminId, action, target, meta, ip }); } catch {}
 }
 
-/* ────────────────────────────────────────
-   INPUT VALIDATION HELPERS
-──────────────────────────────────────── */
 const isValidAmount = (a, min, max) => {
   const n = parseFloat(a);
   return !isNaN(n) && n >= min && (!max || n <= max);
@@ -330,7 +324,6 @@ const toLocalPhone = (p) => {
 /* ────────────────────────────────────────
    AUTH ROUTES
 ──────────────────────────────────────── */
-
 app.post('/api/register', async (req, res) => {
   try {
     const { username, phone, password, email, referralCode } = req.body;
@@ -408,6 +401,7 @@ app.post('/api/login', async (req, res) => {
         phone:        user.phone,
         username:     user.username,
         email:        user.email,
+        avatar:       user.avatar,
         balance:      user.balance,
         referralCode: user.referralCode,
         role:         user.role,
@@ -435,7 +429,7 @@ app.put('/api/me', verifyToken, async (req, res) => {
     const update = {};
     if (username) update.username = username.trim();
     if (email !== undefined) update.email = email.trim().toLowerCase();
-    if (avatar) update.avatar = avatar; // <--- Add avatar saving
+    if (avatar) update.avatar = avatar; 
 
     const user = await User.findByIdAndUpdate(req.user.id, update, { new: true }).select('-password');
     res.json({ message: 'Profile updated.', user });
@@ -576,7 +570,6 @@ app.post('/api/megapay/webhook', async (req, res) => {
       tgSend(`🎁 *WELCOME BONUS APPLIED*\n👤 ${user.phone}\n💰 Bonus: KES ${bonusAmt}`);
     }
 
-    // Grab updated balance for notification
     const updatedUser = await User.findById(user._id);
     tgSend(`💵 *DEPOSIT CONFIRMED*\n👤 ${updatedUser.phone}\n💰 KES ${amount}\n🧾 ${receipt}\n💳 New Balance: KES ${updatedUser.balance.toFixed(2)}`);
 
@@ -586,7 +579,7 @@ app.post('/api/megapay/webhook', async (req, res) => {
 });
 
 /* ────────────────────────────────────────
-   WITHDRAWAL (ATOMIC PREVENTS RACE CONDITIONS)
+   WITHDRAWAL
 ──────────────────────────────────────── */
 app.post('/api/withdraw', async (req, res) => {
   try {
@@ -597,7 +590,6 @@ app.post('/api/withdraw', async (req, res) => {
 
     const amt = parseFloat(amount);
 
-    // ATOMIC DEDUCTION: Impossible to double-withdraw or drop below 0
     const user = await User.findOneAndUpdate(
         { 
             $or: [{ phone: username }, { username }], 
@@ -631,18 +623,56 @@ app.post('/api/withdraw', async (req, res) => {
     res.status(500).json({ error: 'Withdrawal failed. Please try again.' });
   }
 });
+
 /* ────────────────────────────────────────
    TRADING TERMINAL ROUTES
 ──────────────────────────────────────── */
 
-// 1. Place Trade (Deducts Balance)
+const SERVER_INSTRUMENTS = [
+  {id:'eurusd',sym:'EUR/USD',name:'Euro / US Dollar',flag:'🇪🇺',price:1.08542,d:5,vol:0.0008,spread:0.6, _open: 1.08542},
+  {id:'gbpusd',sym:'GBP/USD',name:'British Pound / USD',flag:'🇬🇧',price:1.26780,d:5,vol:0.001,spread:0.8, _open: 1.26780},
+  {id:'usdjpy',sym:'USD/JPY',name:'US Dollar / Yen',flag:'🇯🇵',price:149.312,d:3,vol:0.08,spread:0.5, _open: 149.312},
+  {id:'usdkes',sym:'USD/KES',name:'USD / Kenyan Shilling',flag:'🇰🇪',price:131.450,d:3,vol:0.05,spread:0.4, _open: 131.450},
+  {id:'btcusd',sym:'BTC/USD',name:'Bitcoin / USD',flag:'₿',price:68420.5,d:2,vol:120,spread:45, _open: 68420.5},
+  {id:'ethusd',sym:'ETH/USD',name:'Ethereum / USD',flag:'Ξ',price:3612.8,d:2,vol:25,spread:4, _open: 3612.8},
+  {id:'xauusd',sym:'XAU/USD',name:'Gold / USD',flag:'🥇',price:2318.4,d:2,vol:3,spread:0.3, _open: 2318.4},
+  {id:'spx',sym:'S&P 500',name:'S&P 500 Index',flag:'🇺🇸',price:5234.18,d:2,vol:8,spread:0.5, _open: 5234.18},
+];
+
+let activeTradesCache = []; 
+
+function tickServerPrices() {
+    SERVER_INSTRUMENTS.forEach(m => {
+        let upMoney = 0;
+        let downMoney = 0;
+        
+        activeTradesCache.forEach(t => {
+            if(t.asset === m.sym) {
+                if(t.direction === 'UP') upMoney += t.stake;
+                if(t.direction === 'DOWN') downMoney += t.stake;
+            }
+        });
+
+        // House Edge Logic
+        let bias = 0;
+        if (upMoney > downMoney * 1.5) bias = -0.05; 
+        else if (downMoney > upMoney * 1.5) bias = 0.05; 
+
+        const delta = (Math.random() - 0.5 + bias) * 2 * m.vol * 0.3;
+        m.price = parseFloat(Math.max(0.001, m.price + delta).toFixed(m.d));
+    });
+
+    io.emit('trade_prices', SERVER_INSTRUMENTS.map(i => ({ id: i.id, price: i.price, _open: i._open })));
+}
+
+setInterval(tickServerPrices, 500);
+
 app.post('/api/trade/place', verifyToken, async (req, res) => {
   try {
     const { asset, direction, stake, entryPrice, expiry } = req.body;
     
     if (!stake || stake < 50) return res.status(400).json({ error: 'Minimum stake is KES 50.' });
 
-    // Atomically deduct balance
     const user = await User.findOneAndUpdate(
       { _id: req.user.id, balance: { $gte: stake }, status: 'active' },
       { $inc: { balance: -stake, totalBets: 1 } },
@@ -655,13 +685,14 @@ app.post('/api/trade/place', verifyToken, async (req, res) => {
       userId: user._id, asset, direction, stake, entryPrice, expiry
     });
 
+    activeTradesCache.push({ id: trade._id.toString(), asset, direction, stake });
+
     res.json({ message: 'Trade opened', newBalance: user.balance, tradeId: trade._id });
   } catch (err) {
     res.status(500).json({ error: 'Failed to place trade.' });
   }
 });
 
-// 2. Resolve Trade (Adds Winnings if Won)
 app.post('/api/trade/resolve', verifyToken, async (req, res) => {
   try {
     const { tradeId, status, exitPrice, payout } = req.body;
@@ -669,14 +700,15 @@ app.post('/api/trade/resolve', verifyToken, async (req, res) => {
     const trade = await Trade.findOne({ _id: tradeId, userId: req.user.id, status: 'OPEN' });
     if (!trade) return res.status(404).json({ error: 'Trade not found or already closed.' });
 
-    trade.status = status; // 'WON' or 'LOST'
+    activeTradesCache = activeTradesCache.filter(t => t.id !== tradeId.toString());
+
+    trade.status = status; 
     trade.exitPrice = exitPrice;
     trade.payout = status === 'WON' ? payout : 0;
     await trade.save();
 
     let user;
     if (status === 'WON' && payout > 0) {
-      // Add winnings atomically
       user = await User.findByIdAndUpdate(
           req.user.id, 
           { $inc: { balance: payout, totalWins: payout } }, 
@@ -692,7 +724,6 @@ app.post('/api/trade/resolve', verifyToken, async (req, res) => {
   }
 });
 
-// 3. Fetch Trading History
 app.get('/api/trade/history', verifyToken, async (req, res) => {
   try {
     const trades = await Trade.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(50);
@@ -701,6 +732,7 @@ app.get('/api/trade/history', verifyToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch trade history.' });
   }
 });
+
 /* ────────────────────────────────────────
    USER-FACING DATA ENDPOINTS
 ──────────────────────────────────────── */
@@ -710,12 +742,19 @@ app.get('/api/history/:username', async (req, res) => {
     const user = await User.findOne({ $or: [{ phone: req.params.username }, { username: req.params.username }] });
     if (!user) return res.json([]);
     
-    // Fetch BOTH Aviator Bets and Virtual Bets
     const aviatorBets = await Bet.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50).lean();
     const virtualBets = await VirtualBet.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50).lean();
+    const trades      = await Trade.find({ userId: user._id }).sort({ createdAt: -1 }).limit(50).lean();
     
-    // Combine them and sort by the newest bets first
-    const allBets = [...aviatorBets, ...virtualBets].sort((a, b) => b.createdAt - a.createdAt);
+    const normalizedTrades = trades.map(t => ({
+        ...t,
+        gameId: 'trading',
+        winnings: t.payout,
+        betAmount: t.stake,
+        cashoutMultiplier: t.status === 'WON' ? (t.payout / t.stake).toFixed(2) : 0
+    }));
+
+    const allBets = [...aviatorBets, ...virtualBets, ...normalizedTrades].sort((a, b) => b.createdAt - a.createdAt);
     
     res.json(allBets);
   } catch (err) {
@@ -787,17 +826,15 @@ app.get('/api/referrals/:phone', async (req, res) => {
    NEW FRONTEND INTEGRATION ENDPOINTS
 ──────────────────────────────────────── */
 
-// 1. Bonuses & Promos Claim
 app.post('/api/bonuses/claim', verifyToken, async (req, res) => {
   try {
     const { bonusId, promoId } = req.body;
     const id = bonusId || promoId;
     
-    // Simulate assigning bonus cash to user balance.
     let bonusAmount = 0;
     if (id === 'free-aviator') bonusAmount = 500;
     else if (id === 'sports-boost') bonusAmount = 200;
-    else bonusAmount = 100; // generic fallback
+    else bonusAmount = 100; 
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
@@ -835,7 +872,6 @@ app.post('/api/promotions/claim', verifyToken, async (req, res) => {
   }
 });
 
-// 2. VIP Apply
 app.post('/api/vip/apply', verifyToken, async (req, res) => {
   try {
     const existing = await VipApplication.findOne({ userId: req.user.id, status: 'PENDING' });
@@ -848,7 +884,6 @@ app.post('/api/vip/apply', verifyToken, async (req, res) => {
   }
 });
 
-// 3. Newsletter Subscribe
 app.post('/api/newsletter/subscribe', async (req, res) => {
   try {
     const { phone } = req.body;
@@ -866,7 +901,6 @@ app.post('/api/newsletter/subscribe', async (req, res) => {
   }
 });
 
-// 4. Forum Posts
 app.post('/api/forum/posts', verifyToken, async (req, res) => {
   try {
     const { category, content } = req.body;
@@ -879,7 +913,6 @@ app.post('/api/forum/posts', verifyToken, async (req, res) => {
   }
 });
 
-// 5. Forum Replies
 app.post('/api/forum/replies', verifyToken, async (req, res) => {
   try {
     const { postId, content } = req.body;
@@ -898,7 +931,6 @@ app.post('/api/forum/replies', verifyToken, async (req, res) => {
   }
 });
 
-// 6. Forum Like
 app.post('/api/forum/like', verifyToken, async (req, res) => {
   try {
     const { postId, liked } = req.body;
