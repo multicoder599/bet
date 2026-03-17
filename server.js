@@ -149,6 +149,7 @@ const VirtualBetSchema = new mongoose.Schema({
   selections:  [{ id: String, league: String, match: String, pick: String, odd: Number, market: String, outcome: String }],
   md:          { type: Number, index: true },
   status:      { type: String, enum: ['PENDING','WON','LOST'], default: 'PENDING', index: true },
+  source:      { type: String, default: 'virtuals' }, 
   createdAt:   { type: Date, default: Date.now },
 });
 
@@ -1219,7 +1220,6 @@ function generateMatchday(lg, mdTarget) {
   const timeOffset = (mdTarget - vMD) * (V_BET_TIME + V_PLAY_TIME + 8) * 1000;
   const kickoffDate = new Date(Date.now() + timeOffset + (vTick * 1000));
   
-  // FORCE KENYAN TIMEZONE (EAT)
   const kickoffStr = kickoffDate.toLocaleTimeString('en-GB', { 
       timeZone: 'Africa/Nairobi', 
       hour: '2-digit', 
@@ -1290,7 +1290,18 @@ async function resolveVMatches() {
         const match = vState[sel.league]?.matchdays[vMD]?.find(m => m.id === sel.id);
         if(!match) { isWon=false; break; }
         
-        sel.outcome = match.result; 
+        if(sel.market === '1x2' || sel.market === 'dc') {
+            sel.outcome = match.result; 
+        } else if (sel.market === 'ggng') {
+            sel.outcome = (match.hGoals > 0 && match.aGoals > 0) ? 'GG' : 'NG';
+        } else if (sel.market === 'ov15') {
+            sel.outcome = (match.hGoals + match.aGoals) > 1.5 ? 'OV' : 'UN';
+        } else if (sel.market === 'ov25') {
+            sel.outcome = (match.hGoals + match.aGoals) > 2.5 ? 'OV' : 'UN';
+        } else if (sel.market === 'ov35') {
+            sel.outcome = (match.hGoals + match.aGoals) > 3.5 ? 'OV' : 'UN';
+        }
+        
         let wonSel = false;
         switch(sel.market) {
           case '1x2':  wonSel = (sel.pick === match.result); break;
@@ -1555,6 +1566,7 @@ io.on('connection', (socket) => {
         potential: potential,
         selections: selections,
         md: targetMD, 
+        source: data.source || 'virtuals',
         status: 'PENDING'
       });
 
