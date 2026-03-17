@@ -691,7 +691,8 @@ app.post('/api/trade/resolve', verifyToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to resolve trade.' });
   }
 });
-// 3. Get User Trading History
+
+// 3. Fetch Trading History
 app.get('/api/trade/history', verifyToken, async (req, res) => {
   try {
     const trades = await Trade.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(50);
