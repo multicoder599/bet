@@ -116,6 +116,7 @@ const UserSchema = new mongoose.Schema({
   username:     { type: String, required: true, trim: true },
   password:     { type: String, required: true },
   email:        { type: String, trim: true, lowercase: true, default: '' },
+  avatar:       { type: String, default: '1' }, // <--- ADD THIS LINE
   balance:      { type: Number, default: 0, min: 0 },
   totalDeposit: { type: Number, default: 0 },
   totalBets:    { type: Number, default: 0 },
@@ -416,10 +417,12 @@ app.get('/api/me', verifyToken, async (req, res) => {
 
 app.put('/api/me', verifyToken, async (req, res) => {
   try {
-    const { username, email } = req.body;
+    const { username, email, avatar } = req.body;
     const update = {};
     if (username) update.username = username.trim();
-    if (email)    update.email    = email.trim().toLowerCase();
+    if (email !== undefined) update.email = email.trim().toLowerCase();
+    if (avatar) update.avatar = avatar; // <--- Add avatar saving
+
     const user = await User.findByIdAndUpdate(req.user.id, update, { new: true }).select('-password');
     res.json({ message: 'Profile updated.', user });
   } catch (err) {
