@@ -153,6 +153,20 @@ const VirtualBetSchema = new mongoose.Schema({
   source:      { type: String, default: 'virtuals' }, 
   createdAt:   { type: Date, default: Date.now },
 });
+const TradeSchema = new mongoose.Schema({
+  userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  asset:      String,
+  direction:  { type: String, enum: ['UP', 'DOWN'] },
+  stake:      { type: Number, required: true, min: 50 },
+  entryPrice: Number,
+  exitPrice:  { type: Number, default: null },
+  expiry:     Number,
+  status:     { type: String, enum: ['OPEN', 'WON', 'LOST'], default: 'OPEN' },
+  payout:     { type: Number, default: 0 },
+  createdAt:  { type: Date, default: Date.now }
+});
+
+const Trade = mongoose.model('Trade', TradeSchema);
 
 const TransactionSchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -617,7 +631,66 @@ app.post('/api/withdraw', async (req, res) => {
     res.status(500).json({ error: 'Withdrawal failed. Please try again.' });
   }
 });
+/* ────────────────────────────────────────
+   TRADING TERMINAL ROUTES
+──────────────────────────────────────── */
 
+// 1. Place Trade (Deducts Balance)
+app.post('/api/trade/place', verifyToken, async (req, res) => {
+  try {
+    const { asset, direction, stake, entryPrice, expiry } = req.body;
+    
+    if (!stake || stake < 50) return res.status(400).json({ error: 'Minimum stake is KES 50.' });
+
+    // Atomically deduct balance
+    const user = await User.findOneAndUpdate(
+      { _id: req.user.id, balance: { $gte: stake }, status: 'active' },
+      { $inc: { balance: -stake, totalBets: 1 } },
+      { new: true }
+    );
+    
+    if (!user) return res.status(400).json({ error: 'Insufficient balance.' });
+
+    const trade = await Trade.create({
+      userId: user._id, asset, direction, stake, entryPrice, expiry
+    });
+
+    res.json({ message: 'Trade opened', newBalance: user.balance, tradeId: trade._id });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to place trade.' });
+  }
+});
+
+// 2. Resolve Trade (Adds Winnings if Won)
+app.post('/api/trade/resolve', verifyToken, async (req, res) => {
+  try {
+    const { tradeId, status, exitPrice, payout } = req.body;
+    
+    const trade = await Trade.findOne({ _id: tradeId, userId: req.user.id, status: 'OPEN' });
+    if (!trade) return res.status(404).json({ error: 'Trade not found or already closed.' });
+
+    trade.status = status; // 'WON' or 'LOST'
+    trade.exitPrice = exitPrice;
+    trade.payout = status === 'WON' ? payout : 0;
+    await trade.save();
+
+    let user;
+    if (status === 'WON' && payout > 0) {
+      // Add winnings atomically
+      user = await User.findByIdAndUpdate(
+          req.user.id, 
+          { $inc: { balance: payout, totalWins: payout } }, 
+          { new: true }
+      );
+    } else {
+      user = await User.findById(req.user.id);
+    }
+
+    res.json({ message: 'Trade closed', newBalance: user.balance });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resolve trade.' });
+  }
+});
 /* ────────────────────────────────────────
    USER-FACING DATA ENDPOINTS
 ──────────────────────────────────────── */
