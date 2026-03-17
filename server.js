@@ -1215,9 +1215,16 @@ function calcVOdds(hIdx, aIdx) {
 function generateMatchday(lg, mdTarget) {
   const teams = [...V_LEAGUES[lg].teams].sort(() => Math.random() - 0.5);
   const matches = [];
+  
   const timeOffset = (mdTarget - vMD) * (V_BET_TIME + V_PLAY_TIME + 8) * 1000;
   const kickoffDate = new Date(Date.now() + timeOffset + (vTick * 1000));
-  const kickoffStr = kickoffDate.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
+  
+  // FORCE KENYAN TIMEZONE (EAT)
+  const kickoffStr = kickoffDate.toLocaleTimeString('en-GB', { 
+      timeZone: 'Africa/Nairobi', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+  });
 
   for (let i = 0; i < 10; i++) {
     const home = teams[i*2]; const away = teams[i*2+1];
